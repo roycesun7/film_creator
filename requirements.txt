@@ -1,0 +1,14 @@
+osxphotos>=0.60
+anthropic>=0.40.0
+moviepy>=2.0
+open-clip-torch>=2.24.0
+torch>=2.0
+numpy>=1.24
+Pillow>=10.0
+python-dotenv>=1.0
+twelvelabs>=1.0
+fastapi>=0.100
+uvicorn>=0.20
+python-multipart>=0.0.6
+tqdm>=4.64
+supabase>=2.0

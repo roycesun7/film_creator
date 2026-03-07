@@ -51,6 +51,11 @@ UPLOADS_DIR.mkdir(exist_ok=True)
 
 ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".heic", ".webp", ".tiff", ".bmp", ".gif"}
 ALLOWED_VIDEO_EXT = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
+ALLOWED_AUDIO_EXT = {".mp3", ".wav", ".aac", ".m4a", ".ogg", ".flac", ".wma"}
+
+# Music uploads directory
+MUSIC_DIR = config.PROJECT_ROOT / "uploads" / "music"
+MUSIC_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # Thumbnail cache
@@ -134,6 +139,21 @@ class GenerateRequest(BaseModel):
     persons: Optional[list[str]] = None
     min_quality: Optional[float] = None
     num_candidates: int = 30
+
+
+class CustomShotInput(BaseModel):
+    uuid: str
+    start_time: float
+    end_time: float
+    role: str = "highlight"
+    reason: str = ""
+
+
+class CustomGenerateRequest(BaseModel):
+    shots: list[CustomShotInput]
+    title: str = "Custom Video"
+    theme: str = "minimal"
+    music_path: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -392,9 +412,9 @@ def _embed_with_clip(file_path: str, media_type: str):
     return embed_image(embed_path)
 
 
-def _process_upload_embedding(file_path: str, media_uuid: str, media_type: str):
-    """Background: compute embedding (Twelve Labs or CLIP) and update the DB record."""
-    from index.store import update_embedding
+def _process_upload_embedding(file_path: str, media_uuid: str, media_type: str, describe: bool = False):
+    """Background: compute embedding (Twelve Labs or CLIP) and optionally AI-describe."""
+    from index.store import update_embedding, upsert_media, get_media_by_uuids
     try:
         embedding = None
 
@@ -414,6 +434,21 @@ def _process_upload_embedding(file_path: str, media_uuid: str, media_type: str):
         if embedding is not None:
             update_embedding(media_uuid, embedding)
 
+        if describe and media_type == "photo":
+            try:
+                from index.vision_describe import describe_image
+                description = describe_image(file_path)
+                quality_score = description.get("quality_score")
+                items = get_media_by_uuids([media_uuid])
+                if items:
+                    item = items[0]
+                    item["description"] = description
+                    item["quality_score"] = quality_score
+                    upsert_media(item)
+                logger.info("AI description generated for %s", media_uuid[:8])
+            except Exception as exc:
+                logger.warning("Vision describe failed for %s: %s", media_uuid[:8], exc)
+
         logger.info("Embedding processed: %s (%s) [%s]", media_uuid[:8], media_type,
                      "Twelve Labs" if config.USE_TWELVELABS and embedding is not None else "CLIP")
     except Exception as exc:
@@ -429,7 +464,7 @@ def _upload_to_supabase_storage(content: bytes, bucket: str, path: str, content_
 
 
 @app.post("/api/upload")
-async def upload_files(files: list[UploadFile] = File(...)):
+async def upload_files(files: list[UploadFile] = File(...), describe: bool = Query(False)):
     """Upload photos/videos from the user's filesystem."""
     from index.store import upsert_media
     results = []
@@ -492,10 +527,10 @@ async def upload_files(files: list[UploadFile] = File(...)):
         }
         upsert_media(record)
 
-        # Compute embedding in background thread (uses local file)
+        # Compute embedding (and optionally describe) in background thread
         thread = threading.Thread(
             target=_process_upload_embedding,
-            args=(file_path, media_uuid, media_type),
+            args=(file_path, media_uuid, media_type, describe),
             daemon=True,
         )
         thread.start()
@@ -508,6 +543,31 @@ async def upload_files(files: list[UploadFile] = File(...)):
         })
 
     return {"uploaded": len([r for r in results if "error" not in r]), "results": results}
+
+
+# ---------------------------------------------------------------------------
+# Music upload
+# ---------------------------------------------------------------------------
+
+@app.post("/api/upload-music")
+async def upload_music(file: UploadFile = File(...)):
+    """Upload a music/audio file for use as video soundtrack."""
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_AUDIO_EXT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported audio format: {ext}. Allowed: {', '.join(sorted(ALLOWED_AUDIO_EXT))}",
+        )
+
+    safe_name = f"{uuid_mod.uuid4().hex[:12]}{ext}"
+    dest = MUSIC_DIR / safe_name
+    content = await file.read()
+    dest.write_bytes(content)
+
+    return {
+        "path": str(dest),
+        "filename": file.filename or safe_name,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -766,6 +826,91 @@ def start_generate(req: GenerateRequest):
 
 
 # ---------------------------------------------------------------------------
+# Custom generate (user-reordered EDL)
+# ---------------------------------------------------------------------------
+
+def _run_custom_generate_job(job_id: str, req: CustomGenerateRequest):
+    try:
+        from curate.director import Shot as DShot, EditDecisionList
+        from assemble.builder import build_video
+
+        _update_job(job_id, status="running", message="Resolving media paths...")
+
+        # Look up actual file paths for each shot UUID
+        uuids = [s.uuid for s in req.shots]
+        media_items = get_media_by_uuids(uuids)
+        path_map = {m["uuid"]: m for m in media_items}
+
+        shots = []
+        for s in req.shots:
+            info = path_map.get(s.uuid)
+            if not info:
+                logger.warning("UUID %s not found, skipping", s.uuid)
+                continue
+
+            # Resolve to local path if possible
+            local_path = _resolve_local_path(info.get("path", ""), s.uuid)
+            path = local_path or info.get("path", "")
+
+            shots.append(DShot(
+                uuid=s.uuid,
+                path=path,
+                media_type=info.get("media_type", "photo"),
+                start_time=s.start_time,
+                end_time=s.end_time,
+                role=s.role,
+                reason=s.reason,
+            ))
+
+        if not shots:
+            _update_job(job_id, status="failed", message="No valid shots found")
+            return
+
+        edl = EditDecisionList(
+            shots=shots,
+            title=req.title,
+            narrative_summary=f"Custom edit with {len(shots)} shots",
+            estimated_duration=sum(s.end_time - s.start_time for s in shots),
+            music_mood="custom",
+        )
+
+        _update_job(job_id, progress=40, message=f"Rendering {len(shots)} shots...")
+
+        output_path = build_video(
+            edl=edl,
+            theme_name=req.theme,
+            music_path=req.music_path,
+        )
+
+        filename = Path(output_path).name
+        _update_job(job_id, status="completed", progress=100,
+                    message="Video rendered successfully",
+                    output_path=f"/output/{filename}",
+                    title=req.title)
+
+    except Exception as exc:
+        logger.error("Custom generate job %s failed: %s", job_id, exc, exc_info=True)
+        _update_job(job_id, status="failed", message=str(exc))
+
+
+@app.post("/api/generate-custom")
+def start_custom_generate(req: CustomGenerateRequest):
+    job_id = str(uuid_mod.uuid4())[:8]
+    _jobs[job_id] = {
+        "id": job_id,
+        "type": "generate-custom",
+        "status": "queued",
+        "progress": 0,
+        "message": "Starting custom render...",
+        "created_at": time.time(),
+        "updated_at": time.time(),
+    }
+    thread = threading.Thread(target=_run_custom_generate_job, args=(job_id, req), daemon=True)
+    thread.start()
+    return {"job_id": job_id, "status": "queued"}
+
+
+# ---------------------------------------------------------------------------
 # Job status
 # ---------------------------------------------------------------------------
 
@@ -797,3 +942,43 @@ def list_videos():
             "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
         })
     return {"videos": videos}
+
+
+@app.delete("/api/videos/{filename}")
+def delete_video(filename: str):
+    # Validate filename: no path traversal
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    filepath = config.OUTPUT_DIR / filename
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="Video not found")
+    filepath.unlink()
+    # Also remove cached thumbnail if it exists
+    thumb = _get_thumbnail_path(str(filepath))
+    if thumb.exists():
+        thumb.unlink()
+    return {"deleted": True, "filename": filename}
+
+
+@app.get("/api/videos/{filename}/thumbnail")
+def get_video_thumbnail(filename: str):
+    # Validate filename: no path traversal
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    filepath = config.OUTPUT_DIR / filename
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="Video not found")
+    thumb_path = _get_thumbnail_path(str(filepath))
+    if not thumb_path.exists():
+        try:
+            import subprocess
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", str(filepath), "-ss", "1", "-vframes", "1",
+                 "-vf", f"scale={THUMB_SIZE[0]}:-1", str(thumb_path)],
+                capture_output=True, timeout=10,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Thumbnail generation failed: {exc}")
+    if not thumb_path.exists():
+        raise HTTPException(status_code=500, detail="Thumbnail generation produced no output")
+    return FileResponse(str(thumb_path), media_type="image/jpeg")

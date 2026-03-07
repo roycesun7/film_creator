@@ -24,6 +24,7 @@ class Theme:
     title_position: str  # "center", "bottom_left"
     color_filter: Optional[Callable] = field(default=None, repr=False)
     ken_burns_enabled: bool = True
+    resolution_override: Optional[tuple[int, int]] = None
 
 
 def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -115,6 +116,27 @@ def _warm_color_filter(clip):
     return clip.image_transform(_warm_filter)
 
 
+def _cinematic_filter(frame: np.ndarray) -> np.ndarray:
+    """Slight desaturation + warm tint for a cinematic look."""
+    result = frame.astype(np.float32)
+    # Desaturate by 15%: blend each channel toward the luminance
+    gray = 0.2989 * result[:, :, 0] + 0.5870 * result[:, :, 1] + 0.1140 * result[:, :, 2]
+    factor = 0.85  # keep 85% of colour (15% desaturation)
+    result[:, :, 0] = result[:, :, 0] * factor + gray * (1 - factor)
+    result[:, :, 1] = result[:, :, 1] * factor + gray * (1 - factor)
+    result[:, :, 2] = result[:, :, 2] * factor + gray * (1 - factor)
+    # Warm tint: slight red/green boost, blue reduction
+    result[:, :, 0] = np.minimum(result[:, :, 0] * 1.06, 255)  # red
+    result[:, :, 1] = np.minimum(result[:, :, 1] * 1.02, 255)  # green
+    result[:, :, 2] = result[:, :, 2] * 0.94                    # blue
+    return result.astype(np.uint8)
+
+
+def _cinematic_color_filter(clip):
+    """Apply cinematic desaturation + warm tint to a moviepy clip."""
+    return clip.image_transform(_cinematic_filter)
+
+
 # ---------------------------------------------------------------------------
 # Preset themes
 # ---------------------------------------------------------------------------
@@ -155,10 +177,50 @@ BOLD_MODERN = Theme(
     ken_burns_enabled=False,
 )
 
+CINEMATIC = Theme(
+    name="cinematic",
+    font="Georgia",
+    font_size=56,
+    font_color="#E8E0D0",
+    bg_color="#0A0A0A",
+    transition_type="crossfade",
+    title_position="center",
+    color_filter=_cinematic_color_filter,
+    ken_burns_enabled=True,
+)
+
+DOCUMENTARY = Theme(
+    name="documentary",
+    font="Helvetica",
+    font_size=40,
+    font_color="#FFFFFF",
+    bg_color="#1A1A2E",
+    transition_type="fade_black",
+    title_position="center",
+    color_filter=None,
+    ken_burns_enabled=True,
+)
+
+SOCIAL_VERTICAL = Theme(
+    name="social_vertical",
+    font="Helvetica-Bold",
+    font_size=64,
+    font_color="#FFFFFF",
+    bg_color="#000000",
+    transition_type="crossfade",
+    title_position="center",
+    color_filter=None,
+    ken_burns_enabled=True,
+    resolution_override=(1080, 1920),
+)
+
 _THEMES: dict[str, Theme] = {
     "minimal": MINIMAL,
     "warm_nostalgic": WARM_NOSTALGIC,
     "bold_modern": BOLD_MODERN,
+    "cinematic": CINEMATIC,
+    "documentary": DOCUMENTARY,
+    "social_vertical": SOCIAL_VERTICAL,
 }
 
 

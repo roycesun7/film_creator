@@ -1,17 +1,36 @@
 import { useState, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchMedia, uploadFiles, thumbnailUrl, videoUrl, type MediaItem } from '../api'
+import { useNavigate } from 'react-router-dom'
+import { fetchMedia, uploadFiles, deleteMediaItem, thumbnailUrl, videoUrl, type MediaItem } from '../api'
 import {
   Image, Film, ChevronLeft, ChevronRight,
-  Loader2, Upload, X, Clock, Tag, Users, Plus, CheckCircle2
+  Loader2, Upload, X, Clock, Tag, Users, Plus, CheckCircle2,
+  Trash2, CheckSquare, Square, MousePointerClick, XCircle, Clapperboard, Zap, MessageSquare
 } from 'lucide-react'
 
-function MediaCard({ item, onClick }: { item: MediaItem; onClick: () => void }) {
+function MediaCard({
+  item,
+  onClick,
+  selectMode,
+  isSelected,
+  onToggleSelect,
+}: {
+  item: MediaItem
+  onClick: () => void
+  selectMode: boolean
+  isSelected: boolean
+  onToggleSelect: () => void
+}) {
   const [imgError, setImgError] = useState(false)
+
   return (
     <button
-      onClick={onClick}
-      className="group relative aspect-square bg-zinc-800 rounded-lg overflow-hidden border border-zinc-700/40 hover:border-violet-500/50 transition-all hover:ring-1 hover:ring-violet-500/30"
+      onClick={selectMode ? onToggleSelect : onClick}
+      className={`group relative aspect-square bg-zinc-800 rounded-lg overflow-hidden border transition-all ${
+        isSelected
+          ? 'border-violet-500 ring-2 ring-violet-500/40'
+          : 'border-zinc-700/40 hover:border-violet-500/50 hover:ring-1 hover:ring-violet-500/30'
+      }`}
     >
       {!imgError ? (
         <img
@@ -34,6 +53,17 @@ function MediaCard({ item, onClick }: { item: MediaItem; onClick: () => void }) 
       <div className="absolute bottom-0 left-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
         <p className="text-[10px] text-zinc-300 truncate">{item.date?.slice(0, 10) || 'No date'}</p>
       </div>
+
+      {selectMode && (
+        <div className="absolute top-1.5 left-1.5 z-10">
+          {isSelected ? (
+            <CheckSquare className="w-5 h-5 text-violet-400 drop-shadow-lg" />
+          ) : (
+            <Square className="w-5 h-5 text-zinc-400 drop-shadow-lg" />
+          )}
+        </div>
+      )}
+
       <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
         {item.media_type === 'video' && item.duration != null && item.duration > 0 && (
           <span className="text-[9px] font-bold bg-black/70 text-white px-1.5 py-0.5 rounded">
@@ -48,7 +78,7 @@ function MediaCard({ item, onClick }: { item: MediaItem; onClick: () => void }) 
           {item.media_type === 'video' ? 'VID' : 'IMG'}
         </span>
       </div>
-      {item.quality_score != null && (
+      {item.quality_score != null && !selectMode && (
         <div className="absolute top-1.5 left-1.5">
           <span className="text-[9px] font-bold bg-black/50 text-zinc-200 px-1.5 py-0.5 rounded">
             Q{Math.round(item.quality_score)}
@@ -59,15 +89,28 @@ function MediaCard({ item, onClick }: { item: MediaItem; onClick: () => void }) 
   )
 }
 
-function MediaDetail({ item, onClose }: { item: MediaItem; onClose: () => void }) {
+function MediaDetail({
+  item,
+  onClose,
+  onDelete,
+  isDeleting,
+}: {
+  item: MediaItem
+  onClose: () => void
+  onDelete: () => void
+  isDeleting: boolean
+}) {
   const desc = item.description || {}
   const isVideo = item.media_type === 'video'
+  const hasDescription = desc.summary || Object.keys(desc).length > 0
 
   function formatDuration(seconds: number): string {
     const m = Math.floor(seconds / 60)
     const s = Math.floor(seconds % 60)
     return m > 0 ? `${m}m ${s}s` : `${s}s`
   }
+
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-8" onClick={onClose}>
@@ -86,9 +129,41 @@ function MediaDetail({ item, onClose }: { item: MediaItem; onClose: () => void }
               {item.path ? item.path.split('/').pop() : item.uuid.slice(0, 12)}
             </h2>
           </div>
-          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {!confirmDelete ? (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="text-zinc-400 hover:text-red-400 transition-colors p-1 rounded hover:bg-red-500/10"
+                title="Delete"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={onDelete}
+                  disabled={isDeleting}
+                  className="flex items-center gap-1 text-xs font-medium bg-red-600 hover:bg-red-500 disabled:bg-red-800 text-white px-2.5 py-1 rounded-md transition-colors"
+                >
+                  {isDeleting ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-3 h-3" />
+                  )}
+                  Delete
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="text-zinc-400 hover:text-zinc-200 text-xs px-2 py-1 rounded-md hover:bg-zinc-800 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
         <div className="p-5">
           <div className="aspect-video bg-black rounded-lg overflow-hidden mb-5">
@@ -123,6 +198,12 @@ function MediaDetail({ item, onClose }: { item: MediaItem; onClose: () => void }
               {(item.width && item.height) && (
                 <div className="text-zinc-400 text-xs">{item.width}x{item.height}</div>
               )}
+              <div className="flex items-center gap-2 text-zinc-400">
+                <Zap className="w-3.5 h-3.5" />
+                <span className={hasDescription ? 'text-emerald-400' : 'text-zinc-500'}>
+                  {hasDescription ? 'Embedded' : 'Not embedded'}
+                </span>
+              </div>
             </div>
             <div className="space-y-2">
               {item.albums.length > 0 && (
@@ -139,6 +220,20 @@ function MediaDetail({ item, onClose }: { item: MediaItem; onClose: () => void }
               )}
             </div>
           </div>
+
+          {item.labels.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {item.labels.map((label) => (
+                <span
+                  key={label}
+                  className="text-[11px] font-medium bg-zinc-800 text-zinc-300 border border-zinc-700 px-2 py-0.5 rounded-full"
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          )}
+
           {desc.summary && (
             <div className="mt-4 p-3 bg-zinc-800/60 rounded-lg">
               <p className="text-xs text-zinc-500 mb-1">AI Description</p>
@@ -153,6 +248,7 @@ function MediaDetail({ item, onClose }: { item: MediaItem; onClose: () => void }
 
 export default function Library() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [offset, setOffset] = useState(0)
   const [sort, setSort] = useState('date')
   const [selected, setSelected] = useState<MediaItem | null>(null)
@@ -161,20 +257,43 @@ export default function Library() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const limit = 24
 
+  const [autoDescribe, setAutoDescribe] = useState(false)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedUuids, setSelectedUuids] = useState<Set<string>>(new Set())
+
   const { data, isLoading } = useQuery({
     queryKey: ['media', offset, sort],
     queryFn: () => fetchMedia({ limit, offset, sort }),
   })
 
   const uploadMut = useMutation({
-    mutationFn: (files: FileList | File[]) => uploadFiles(files),
+    mutationFn: (files: FileList | File[]) => uploadFiles(files, autoDescribe),
     onSuccess: (data) => {
       setUploadResult({ count: data.uploaded, visible: true })
-      // Refresh immediately — records are inserted before embedding starts
       queryClient.invalidateQueries({ queryKey: ['media'] })
       queryClient.invalidateQueries({ queryKey: ['stats'] })
-      // Hide success message after 4s
       setTimeout(() => setUploadResult(null), 4000)
+    },
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (uuid: string) => deleteMediaItem(uuid),
+    onSuccess: () => {
+      setSelected(null)
+      queryClient.invalidateQueries({ queryKey: ['media'] })
+      queryClient.invalidateQueries({ queryKey: ['stats'] })
+    },
+  })
+
+  const bulkDeleteMut = useMutation({
+    mutationFn: async (uuids: string[]) => {
+      await Promise.all(uuids.map((uuid) => deleteMediaItem(uuid)))
+    },
+    onSuccess: () => {
+      setSelectedUuids(new Set())
+      setSelectMode(false)
+      queryClient.invalidateQueries({ queryKey: ['media'] })
+      queryClient.invalidateQueries({ queryKey: ['stats'] })
     },
   })
 
@@ -200,6 +319,29 @@ export default function Library() {
     setDragging(false)
   }, [])
 
+  function toggleSelect(uuid: string) {
+    setSelectedUuids((prev) => {
+      const next = new Set(prev)
+      if (next.has(uuid)) {
+        next.delete(uuid)
+      } else {
+        next.add(uuid)
+      }
+      return next
+    })
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false)
+    setSelectedUuids(new Set())
+  }
+
+  function handleCreateVideo() {
+    const params = new URLSearchParams()
+    params.set('media', Array.from(selectedUuids).join(','))
+    navigate(`/studio?${params.toString()}`)
+  }
+
   const items = data?.items || []
   const total = data?.total || 0
   const totalPages = Math.ceil(total / limit)
@@ -212,7 +354,6 @@ export default function Library() {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
     >
-      {/* Hidden file input */}
       <input
         ref={fileInputRef}
         type="file"
@@ -222,7 +363,6 @@ export default function Library() {
         onChange={(e) => e.target.files && handleFiles(e.target.files)}
       />
 
-      {/* Drag overlay */}
       {dragging && (
         <div className="fixed inset-0 z-50 bg-violet-500/10 border-2 border-dashed border-violet-500 flex items-center justify-center pointer-events-none">
           <div className="bg-zinc-900 border border-violet-500 rounded-2xl px-10 py-8 text-center">
@@ -249,6 +389,29 @@ export default function Library() {
             <option value="quality">Quality</option>
           </select>
           <button
+            onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
+            className={`flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg transition-colors ${
+              selectMode
+                ? 'bg-violet-600 text-white hover:bg-violet-500'
+                : 'bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700'
+            }`}
+          >
+            <MousePointerClick className="w-4 h-4" />
+            {selectMode ? 'Cancel' : 'Select'}
+          </button>
+          <button
+            onClick={() => setAutoDescribe(!autoDescribe)}
+            className={`flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg transition-colors ${
+              autoDescribe
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                : 'bg-zinc-800 text-zinc-400 border border-zinc-700 hover:text-zinc-300'
+            }`}
+            title="Auto-describe uploads with AI"
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            AI Describe
+          </button>
+          <button
             onClick={() => fileInputRef.current?.click()}
             disabled={uploadMut.isPending}
             className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
@@ -262,7 +425,6 @@ export default function Library() {
         </div>
       </div>
 
-      {/* Upload success banner */}
       {uploadResult?.visible && (
         <div className="mb-6 flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-3">
           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
@@ -272,7 +434,6 @@ export default function Library() {
         </div>
       )}
 
-      {/* Media grid */}
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-zinc-500" />
@@ -294,7 +455,14 @@ export default function Library() {
         <>
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
             {items.map((item) => (
-              <MediaCard key={item.uuid} item={item} onClick={() => setSelected(item)} />
+              <MediaCard
+                key={item.uuid}
+                item={item}
+                onClick={() => setSelected(item)}
+                selectMode={selectMode}
+                isSelected={selectedUuids.has(item.uuid)}
+                onToggleSelect={() => toggleSelect(item.uuid)}
+              />
             ))}
           </div>
 
@@ -322,7 +490,49 @@ export default function Library() {
         </>
       )}
 
-      {selected && <MediaDetail item={selected} onClose={() => setSelected(null)} />}
+      {selectMode && selectedUuids.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-zinc-900 border border-zinc-700 rounded-xl px-5 py-3 shadow-2xl shadow-black/50">
+          <span className="text-sm text-zinc-400">
+            {selectedUuids.size} selected
+          </span>
+          <div className="w-px h-6 bg-zinc-700" />
+          <button
+            onClick={() => setSelectedUuids(new Set())}
+            className="flex items-center gap-1.5 text-sm text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded-md hover:bg-zinc-800 transition-colors"
+          >
+            <XCircle className="w-3.5 h-3.5" />
+            Deselect All
+          </button>
+          <button
+            onClick={() => bulkDeleteMut.mutate(Array.from(selectedUuids))}
+            disabled={bulkDeleteMut.isPending}
+            className="flex items-center gap-1.5 text-sm font-medium bg-red-600 hover:bg-red-500 disabled:bg-red-800 text-white px-3 py-1.5 rounded-lg transition-colors"
+          >
+            {bulkDeleteMut.isPending ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="w-3.5 h-3.5" />
+            )}
+            Delete Selected ({selectedUuids.size})
+          </button>
+          <button
+            onClick={handleCreateVideo}
+            className="flex items-center gap-1.5 text-sm font-medium bg-violet-600 hover:bg-violet-500 text-white px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Clapperboard className="w-3.5 h-3.5" />
+            Create Video
+          </button>
+        </div>
+      )}
+
+      {selected && (
+        <MediaDetail
+          item={selected}
+          onClose={() => setSelected(null)}
+          onDelete={() => deleteMut.mutate(selected.uuid)}
+          isDeleting={deleteMut.isPending}
+        />
+      )}
     </div>
   )
 }

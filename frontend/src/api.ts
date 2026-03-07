@@ -53,13 +53,36 @@ export const fetchJobs = () => request<{ jobs: Job[] }>('/api/jobs')
 // Videos
 export const fetchVideos = () => request<{ videos: VideoFile[] }>('/api/videos')
 
+export const deleteVideo = (filename: string) =>
+  request<{ deleted: boolean; filename: string }>(`/api/videos/${encodeURIComponent(filename)}`, { method: 'DELETE' })
+
+export const videoThumbnailUrl = (filename: string) =>
+  `/api/videos/${encodeURIComponent(filename)}/thumbnail`
+
+// Music upload
+export async function uploadMusic(file: File): Promise<MusicUploadResponse> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await fetch('/api/upload-music', { method: 'POST', body: formData })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.detail || `Music upload failed: ${res.status}`)
+  }
+  return res.json()
+}
+
+// Custom generate (user-reordered EDL)
+export const startCustomGenerate = (body: CustomGenerateRequest) =>
+  request<{ job_id: string }>('/api/generate-custom', { method: 'POST', body: JSON.stringify(body) })
+
 // Upload
-export async function uploadFiles(files: FileList | File[]): Promise<UploadResponse> {
+export async function uploadFiles(files: FileList | File[], describe = false): Promise<UploadResponse> {
   const formData = new FormData()
   for (const file of Array.from(files)) {
     formData.append('files', file)
   }
-  const res = await fetch('/api/upload', { method: 'POST', body: formData })
+  const url = describe ? '/api/upload?describe=true' : '/api/upload'
+  const res = await fetch(url, { method: 'POST', body: formData })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error(body.detail || `Upload failed: ${res.status}`)
@@ -195,4 +218,24 @@ export interface VideoFile {
   path: string
   size_mb: number
   created_at: string
+}
+
+export interface MusicUploadResponse {
+  path: string
+  filename: string
+}
+
+export interface CustomShotInput {
+  uuid: string
+  start_time: number
+  end_time: number
+  role: string
+  reason: string
+}
+
+export interface CustomGenerateRequest {
+  shots: CustomShotInput[]
+  title: string
+  theme: string
+  music_path?: string
 }

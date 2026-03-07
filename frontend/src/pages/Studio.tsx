@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   previewVideo, startGenerate, startCustomGenerate, fetchJob, thumbnailUrl, uploadMusic,
@@ -137,6 +137,7 @@ function ShotCard({ shot, index, total, onMoveUp, onMoveDown, onRemove, onDurati
 
 export default function Studio() {
   const toast = useToast()
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [prompt, setPrompt] = useState('')
   const [duration, setDuration] = useState(60)
@@ -585,7 +586,12 @@ export default function Studio() {
                   </span>
                 )}
               </span>
-              <span className="flex items-center gap-1"><Film className="w-3 h-3" /> {shots.length} shots</span>
+              <span className="flex items-center gap-1">
+                <Film className="w-3 h-3" /> {shots.length} shots
+                <span className="text-zinc-600 ml-0.5">
+                  ({shots.filter(s => s.media_type === 'photo').length} photo, {shots.filter(s => s.media_type === 'video').length} video)
+                </span>
+              </span>
               <span className="flex items-center gap-1"><Music className="w-3 h-3" /> {musicFilename || edlMeta.music_mood}</span>
               <span className="text-zinc-600">Render: ~{Math.max(1, Math.ceil(totalDuration / 10))} min</span>
             </div>
@@ -625,6 +631,12 @@ export default function Studio() {
                   >
                     <Download className="w-3.5 h-3.5" /> Download
                   </a>
+                  <button
+                    onClick={() => navigate('/videos')}
+                    className="flex items-center gap-1.5 text-xs font-medium bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    <Film className="w-3.5 h-3.5" /> View All Videos
+                  </button>
                   <button
                     onClick={() => {
                       setGeneratingJobId(null)

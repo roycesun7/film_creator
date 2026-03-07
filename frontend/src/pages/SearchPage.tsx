@@ -4,7 +4,8 @@ import { useMutation } from '@tanstack/react-query'
 import { searchMedia, thumbnailUrl, videoUrl, type MediaItem } from '../api'
 import {
   Search, Loader2, Image, Film, Zap, Sparkles, Clapperboard,
-  CheckSquare, Square, X, Clock, Tag, Users, AlertCircle
+  CheckSquare, Square, X, Clock, Tag, Users, AlertCircle,
+  ChevronDown, ChevronUp, Filter
 } from 'lucide-react'
 
 type ResultItem = MediaItem & { relevance_score?: number }
@@ -18,6 +19,10 @@ export default function SearchPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [detailItem, setDetailItem] = useState<ResultItem | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const [showFilters, setShowFilters] = useState(false)
+  const [albumsFilter, setAlbumsFilter] = useState('')
+  const [personsFilter, setPersonsFilter] = useState('')
+  const [minQuality, setMinQuality] = useState<number | ''>('')
 
   // Auto-focus search input on mount
   useEffect(() => { searchInputRef.current?.focus() }, [])
@@ -31,8 +36,20 @@ export default function SearchPage() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [detailItem])
 
+  const parseList = (val: string): string[] | undefined => {
+    const items = val.split(',').map(s => s.trim()).filter(Boolean)
+    return items.length > 0 ? items : undefined
+  }
+
   const searchMut = useMutation({
-    mutationFn: () => searchMedia({ query, fast, limit: 30 }),
+    mutationFn: () => searchMedia({
+      query,
+      fast,
+      limit: 30,
+      albums: parseList(albumsFilter),
+      persons: parseList(personsFilter),
+      min_quality: minQuality !== '' ? minQuality : undefined,
+    }),
     onSuccess: (data) => {
       setResults(data.results)
       setSearched(true)
@@ -112,6 +129,59 @@ export default function SearchPage() {
           </p>
         )}
       </form>
+
+      <div className="mb-6 border border-zinc-700/50 rounded-lg overflow-hidden">
+        <button
+          onClick={() => setShowFilters(!showFilters)}
+          className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-medium text-zinc-400 hover:text-zinc-300 hover:bg-zinc-800/50 transition-colors"
+        >
+          <span className="flex items-center gap-2">
+            <Filter className="w-3.5 h-3.5" />
+            Filters
+            {(albumsFilter || personsFilter || minQuality !== '') && (
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />
+            )}
+          </span>
+          {showFilters ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        {showFilters && (
+          <div className="px-4 pb-4 pt-2 border-t border-zinc-700/50 grid grid-cols-3 gap-4">
+            <div>
+              <label className="block text-[11px] font-medium text-zinc-500 mb-1">Albums</label>
+              <input
+                type="text"
+                value={albumsFilter}
+                onChange={(e) => setAlbumsFilter(e.target.value)}
+                placeholder="e.g. Vacation, Summer"
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-zinc-500 mb-1">Persons</label>
+              <input
+                type="text"
+                value={personsFilter}
+                onChange={(e) => setPersonsFilter(e.target.value)}
+                placeholder="e.g. Alice, Bob"
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-zinc-500 mb-1">Min quality</label>
+              <input
+                type="number"
+                value={minQuality}
+                onChange={(e) => setMinQuality(e.target.value ? Number(e.target.value) : '')}
+                min={1}
+                max={10}
+                step={0.5}
+                placeholder="Any"
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500"
+              />
+            </div>
+          </div>
+        )}
+      </div>
 
       {searchMut.isPending && (
         <div className="flex items-center justify-center py-16">

@@ -36,9 +36,13 @@ interface ShotCardProps {
   onMoveUp: () => void
   onMoveDown: () => void
   onRemove: () => void
+  onDurationChange: (newDuration: number) => void
 }
 
-function ShotCard({ shot, index, total, onMoveUp, onMoveDown, onRemove }: ShotCardProps) {
+function ShotCard({ shot, index, total, onMoveUp, onMoveDown, onRemove, onDurationChange }: ShotCardProps) {
+  const [editingDuration, setEditingDuration] = useState(false)
+  const [durationVal, setDurationVal] = useState(shot.duration.toFixed(1))
+
   return (
     <div className="flex items-start gap-3 bg-zinc-800/40 border border-zinc-700/40 rounded-lg p-3 hover:border-zinc-600 transition-colors group">
       {/* Reorder controls */}
@@ -80,7 +84,41 @@ function ShotCard({ shot, index, total, onMoveUp, onMoveDown, onRemove }: ShotCa
           }`}>
             {shot.media_type}
           </span>
-          <span className="text-[10px] text-zinc-500 ml-auto tabular-nums">{shot.duration.toFixed(1)}s</span>
+          {editingDuration ? (
+            <input
+              type="number"
+              value={durationVal}
+              onChange={(e) => setDurationVal(e.target.value)}
+              onBlur={() => {
+                const val = parseFloat(durationVal)
+                if (val > 0 && val <= 30) onDurationChange(val)
+                setEditingDuration(false)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const val = parseFloat(durationVal)
+                  if (val > 0 && val <= 30) onDurationChange(val)
+                  setEditingDuration(false)
+                } else if (e.key === 'Escape') {
+                  setDurationVal(shot.duration.toFixed(1))
+                  setEditingDuration(false)
+                }
+              }}
+              autoFocus
+              min={0.5}
+              max={30}
+              step={0.5}
+              className="w-14 text-[10px] text-zinc-300 bg-zinc-700 border border-zinc-600 rounded px-1 py-0.5 text-right tabular-nums focus:outline-none focus:ring-1 focus:ring-violet-500 ml-auto"
+            />
+          ) : (
+            <button
+              onClick={() => { setDurationVal(shot.duration.toFixed(1)); setEditingDuration(true) }}
+              className="text-[10px] text-zinc-500 ml-auto tabular-nums hover:text-zinc-300 hover:bg-zinc-700/50 px-1 py-0.5 rounded transition-colors"
+              title="Click to edit duration"
+            >
+              {shot.duration.toFixed(1)}s
+            </button>
+          )}
         </div>
         <p className="text-xs text-zinc-400 line-clamp-2">{shot.reason}</p>
       </div>
@@ -273,6 +311,11 @@ export default function Studio() {
 
   const removeShot = useCallback((index: number) => {
     setShots(prev => prev.filter((_, i) => i !== index))
+    setEdlModified(true)
+  }, [])
+
+  const updateShotDuration = useCallback((index: number, newDuration: number) => {
+    setShots(prev => prev.map((s, i) => i === index ? { ...s, duration: newDuration } : s))
     setEdlModified(true)
   }, [])
 
@@ -551,8 +594,14 @@ export default function Studio() {
           )}
 
           {isJobFailed && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
+            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-center justify-between">
               <p className="text-red-300 text-sm">Render failed: {job?.message}</p>
+              <button
+                onClick={() => { setGeneratingJobId(null); generateMut.mutate() }}
+                className="flex items-center gap-1.5 text-xs font-medium bg-red-600/20 text-red-300 hover:bg-red-600/30 px-3 py-1.5 rounded-lg transition-colors shrink-0"
+              >
+                <RotateCcw className="w-3.5 h-3.5" /> Retry
+              </button>
             </div>
           )}
 
@@ -619,6 +668,7 @@ export default function Studio() {
                   onMoveUp={() => moveShot(i, 'up')}
                   onMoveDown={() => moveShot(i, 'down')}
                   onRemove={() => removeShot(i)}
+                  onDurationChange={(d) => updateShotDuration(i, d)}
                 />
               ))}
             </div>

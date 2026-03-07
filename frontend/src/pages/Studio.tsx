@@ -340,6 +340,18 @@ export default function Studio() {
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault()
+                if (prompt.trim() && !previewMut.isPending) {
+                  setShots([])
+                  setEdlMeta(null)
+                  setGeneratingJobId(null)
+                  setEdlModified(false)
+                  previewMut.mutate()
+                }
+              }
+            }}
             placeholder="Describe the video you want to create... (e.g. 'A warm montage of our summer vacation — beaches, sunsets, and laughter')"
             rows={3}
             className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none"
@@ -497,17 +509,22 @@ export default function Studio() {
           )}
         </div>
 
-        <button
-          type="submit"
-          disabled={!prompt.trim() || previewMut.isPending}
-          className="flex items-center gap-2 bg-zinc-700 hover:bg-zinc-600 disabled:bg-zinc-800 disabled:text-zinc-600 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
-        >
-          {previewMut.isPending ? (
-            <><Loader2 className="w-4 h-4 animate-spin" /> Planning...</>
-          ) : (
-            <><Eye className="w-4 h-4" /> Preview Plan</>
-          )}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="submit"
+            disabled={!prompt.trim() || previewMut.isPending}
+            className="flex items-center gap-2 bg-zinc-700 hover:bg-zinc-600 disabled:bg-zinc-800 disabled:text-zinc-600 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
+          >
+            {previewMut.isPending ? (
+              <><Loader2 className="w-4 h-4 animate-spin" /> Planning...</>
+            ) : (
+              <><Eye className="w-4 h-4" /> Preview Plan</>
+            )}
+          </button>
+          <span className="text-[10px] text-zinc-600 hidden sm:inline">
+            <kbd className="bg-zinc-800 px-1 rounded">⌘</kbd>+<kbd className="bg-zinc-800 px-1 rounded">Enter</kbd> to submit
+          </span>
+        </div>
       </form>
 
       {/* Planning skeleton */}

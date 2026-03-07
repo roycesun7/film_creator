@@ -110,6 +110,8 @@ class SearchRequest(BaseModel):
     albums: Optional[list[str]] = None
     persons: Optional[list[str]] = None
     min_quality: Optional[float] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
     limit: int = 20
     fast: bool = False
 
@@ -588,10 +590,14 @@ def search_media(req: SearchRequest):
         results = search_by_description(query=req.query, limit=req.limit)
     else:
         from curate.search import hybrid_search
+        date_range = None
+        if req.date_from or req.date_to:
+            date_range = (req.date_from or "", req.date_to or "")
         results = hybrid_search(
             query=req.query,
             albums=req.albums,
             persons=req.persons,
+            date_range=date_range,
             min_quality=req.min_quality,
             limit=req.limit,
         )

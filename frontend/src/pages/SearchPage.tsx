@@ -23,6 +23,8 @@ export default function SearchPage() {
   const [albumsFilter, setAlbumsFilter] = useState('')
   const [personsFilter, setPersonsFilter] = useState('')
   const [minQuality, setMinQuality] = useState<number | ''>('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
 
   // Auto-focus search input on mount
   useEffect(() => { searchInputRef.current?.focus() }, [])
@@ -49,6 +51,8 @@ export default function SearchPage() {
       albums: parseList(albumsFilter),
       persons: parseList(personsFilter),
       min_quality: minQuality !== '' ? minQuality : undefined,
+      date_from: dateFrom || undefined,
+      date_to: dateTo || undefined,
     }),
     onSuccess: (data) => {
       setResults(data.results)
@@ -138,46 +142,77 @@ export default function SearchPage() {
           <span className="flex items-center gap-2">
             <Filter className="w-3.5 h-3.5" />
             Filters
-            {(albumsFilter || personsFilter || minQuality !== '') && (
+            {(albumsFilter || personsFilter || minQuality !== '' || dateFrom || dateTo) && (
               <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />
             )}
           </span>
           {showFilters ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
         {showFilters && (
-          <div className="px-4 pb-4 pt-2 border-t border-zinc-700/50 grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-[11px] font-medium text-zinc-500 mb-1">Albums</label>
-              <input
-                type="text"
-                value={albumsFilter}
-                onChange={(e) => setAlbumsFilter(e.target.value)}
-                placeholder="e.g. Vacation, Summer"
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500"
-              />
+          <div className="px-4 pb-4 pt-2 border-t border-zinc-700/50 space-y-3">
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 mb-1">Albums</label>
+                <input
+                  type="text"
+                  value={albumsFilter}
+                  onChange={(e) => setAlbumsFilter(e.target.value)}
+                  placeholder="e.g. Vacation, Summer"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 mb-1">Persons</label>
+                <input
+                  type="text"
+                  value={personsFilter}
+                  onChange={(e) => setPersonsFilter(e.target.value)}
+                  placeholder="e.g. Alice, Bob"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 mb-1">Min quality</label>
+                <input
+                  type="number"
+                  value={minQuality}
+                  onChange={(e) => setMinQuality(e.target.value ? Number(e.target.value) : '')}
+                  min={1}
+                  max={10}
+                  step={0.5}
+                  placeholder="Any"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                />
+              </div>
             </div>
             <div>
-              <label className="block text-[11px] font-medium text-zinc-500 mb-1">Persons</label>
-              <input
-                type="text"
-                value={personsFilter}
-                onChange={(e) => setPersonsFilter(e.target.value)}
-                placeholder="e.g. Alice, Bob"
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-medium text-zinc-500 mb-1">Min quality</label>
-              <input
-                type="number"
-                value={minQuality}
-                onChange={(e) => setMinQuality(e.target.value ? Number(e.target.value) : '')}
-                min={1}
-                max={10}
-                step={0.5}
-                placeholder="Any"
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500"
-              />
+              <label className="block text-[11px] font-medium text-zinc-500 mb-1">Date Range</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-violet-500 [color-scheme:dark]"
+                  placeholder="From"
+                />
+                <span className="text-zinc-600 text-xs">to</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-violet-500 [color-scheme:dark]"
+                  placeholder="To"
+                />
+                {(dateFrom || dateTo) && (
+                  <button
+                    type="button"
+                    onClick={() => { setDateFrom(''); setDateTo('') }}
+                    className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}

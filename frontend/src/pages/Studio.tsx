@@ -358,16 +358,37 @@ export default function Studio() {
             className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none"
           />
           {selectedMediaUuids.length > 0 && (
-            <div className="flex items-center gap-2 text-xs text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded-lg px-3 py-2">
-              <Film className="w-3.5 h-3.5" />
-              <span>{selectedMediaUuids.length} media item{selectedMediaUuids.length !== 1 ? 's' : ''} pre-selected</span>
-              <button
-                type="button"
-                onClick={() => setSelectedMediaUuids([])}
-                className="ml-auto text-violet-400/60 hover:text-violet-300 transition-colors"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
+            <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg px-3 py-2.5">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2 text-xs text-violet-400">
+                  <Film className="w-3.5 h-3.5" />
+                  <span>{selectedMediaUuids.length} media item{selectedMediaUuids.length !== 1 ? 's' : ''} pre-selected</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedMediaUuids([])}
+                  className="text-violet-400/60 hover:text-violet-300 transition-colors text-xs flex items-center gap-1"
+                >
+                  <X className="w-3 h-3" /> Clear
+                </button>
+              </div>
+              <div className="flex gap-1.5 overflow-x-auto pb-1">
+                {selectedMediaUuids.slice(0, 12).map((uuid) => (
+                  <div key={uuid} className="w-12 h-12 rounded-md overflow-hidden bg-zinc-800 shrink-0 border border-violet-500/30">
+                    <img
+                      src={thumbnailUrl(uuid)}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                    />
+                  </div>
+                ))}
+                {selectedMediaUuids.length > 12 && (
+                  <div className="w-12 h-12 rounded-md bg-zinc-800 shrink-0 border border-zinc-700 flex items-center justify-center text-xs text-zinc-400">
+                    +{selectedMediaUuids.length - 12}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

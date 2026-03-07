@@ -146,6 +146,8 @@ export interface SearchRequest {
   albums?: string[]
   persons?: string[]
   min_quality?: number
+  date_from?: string
+  date_to?: string
   limit?: number
   fast?: boolean
 }

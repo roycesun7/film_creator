@@ -503,6 +503,28 @@ export default function Library() {
               </button>
             )}
           </div>
+          {/* Quick date presets */}
+          <div className="flex items-center gap-1">
+            {[
+              { label: 'Last 7d', from: (() => { const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10) })(), to: '' },
+              { label: 'Last 30d', from: (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10) })(), to: '' },
+              { label: 'Last 90d', from: (() => { const d = new Date(); d.setDate(d.getDate() - 90); return d.toISOString().slice(0, 10) })(), to: '' },
+              { label: 'Summer \'25', from: '2025-06-01', to: '2025-08-31' },
+              { label: 'This Year', from: `${new Date().getFullYear()}-01-01`, to: '' },
+            ].map((preset) => (
+              <button
+                key={preset.label}
+                onClick={() => { setDateFrom(preset.from); setDateTo(preset.to); setOffset(0) }}
+                className={`text-[11px] font-medium px-2 py-1 rounded-md transition-colors ${
+                  dateFrom === preset.from && dateTo === preset.to
+                    ? 'bg-violet-600 text-white'
+                    : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
           <button
             onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
             className={`flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg transition-colors ${
@@ -552,6 +574,32 @@ export default function Library() {
           </button>
         </div>
       </div>
+
+      {(dateFrom || dateTo) && items.length > 0 && !selectMode && (
+        <div className="mb-4 flex items-center justify-between bg-violet-500/10 border border-violet-500/20 rounded-xl px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Clapperboard className="w-4 h-4 text-violet-400" />
+            <span className="text-sm text-violet-200">
+              {total} item{total !== 1 ? 's' : ''} from{' '}
+              {dateFrom && dateTo ? `${dateFrom} to ${dateTo}` : dateFrom ? `after ${dateFrom}` : `before ${dateTo}`}
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              const promptText = dateFrom && dateTo
+                ? `Create a highlights video of my memories from ${dateFrom} to ${dateTo}`
+                : dateFrom
+                ? `Create a highlights video of my memories since ${dateFrom}`
+                : `Create a highlights video of my memories through ${dateTo}`
+              navigate(`/studio?prompt=${encodeURIComponent(promptText)}`)
+            }}
+            className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Create Highlights Video
+          </button>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">

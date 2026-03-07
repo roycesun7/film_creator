@@ -8,8 +8,11 @@ optional background music.
 from __future__ import annotations
 
 import logging
+import tempfile
+import urllib.request
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
+from urllib.parse import urlparse
 
 import numpy as np
 from moviepy import (
@@ -38,10 +41,58 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+UPLOADS_DIR = config.PROJECT_ROOT / "uploads"
+
 
 def _print_progress(msg: str) -> None:
     """Print a timestamped progress message."""
     print(f"[assemble] {msg}")
+
+
+# ---------------------------------------------------------------------------
+# Media path resolution (local files and Supabase Storage URLs)
+# ---------------------------------------------------------------------------
+
+def _resolve_media_path(shot: "Shot") -> str:
+    """Resolve a shot's path to a local file path.
+
+    If ``shot.path`` is a URL (starts with ``https://``), the function first
+    checks whether a local copy already exists in the ``uploads/`` directory.
+    The expected filename format is ``{uuid}{ext}``.  If a local copy is found,
+    its path is returned; otherwise the file is downloaded to a temp location.
+
+    For regular local paths the value is returned unchanged.
+    """
+    path = shot.path
+
+    if not path.startswith("https://"):
+        return path
+
+    # Extract filename from URL (last path segment)
+    parsed = urlparse(path)
+    url_filename = Path(parsed.path).name  # e.g. "abc123.jpg"
+
+    # Check for a local copy in uploads/
+    local_candidate = UPLOADS_DIR / url_filename
+    if local_candidate.exists():
+        logger.debug("Using local copy for %s: %s", path, local_candidate)
+        return str(local_candidate)
+
+    # Download to a temporary file
+    _print_progress(f"Downloading remote media: {url_filename}")
+    ext = Path(url_filename).suffix or ".tmp"
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=ext)
+    try:
+        urllib.request.urlretrieve(path, tmp_path)
+    except Exception as exc:
+        logger.warning("Failed to download %s: %s", path, exc)
+        raise
+    finally:
+        # Close the file descriptor opened by mkstemp
+        import os
+        os.close(tmp_fd)
+
+    return tmp_path
 
 
 # ---------------------------------------------------------------------------
@@ -63,11 +114,12 @@ def _prepare_photo_clip(
     if duration <= 0:
         duration = config.DEFAULT_PHOTO_DURATION
     try:
+        local_path = _resolve_media_path(shot)
         if theme.ken_burns_enabled:
-            clip = apply_ken_burns(shot.path, duration, fps, resolution)
+            clip = apply_ken_burns(local_path, duration, fps, resolution)
         else:
             # Static clip — letterbox/pillarbox to maintain aspect ratio
-            fitted_array = fit_to_resolution(shot.path, resolution, theme.bg_color)
+            fitted_array = fit_to_resolution(local_path, resolution, theme.bg_color)
             clip = (
                 ImageClip(fitted_array)
                 .with_duration(duration)
@@ -89,7 +141,8 @@ def _prepare_video_clip(
     """Load and trim a video clip according to the shot's time range."""
     raw_clip = None
     try:
-        raw_clip = VideoFileClip(shot.path)
+        local_path = _resolve_media_path(shot)
+        raw_clip = VideoFileClip(local_path)
         subclip = raw_clip.subclipped(shot.start_time, shot.end_time)
         clip = fit_to_resolution(subclip, resolution, bg_color)
         return clip
@@ -175,8 +228,13 @@ def _create_closing_card(
     duration: float,
     resolution: tuple[int, int],
     fps: int,
+    title: str = "",
 ) -> CompositeVideoClip:
-    """Create a closing card — a solid bg_color clip with a fade-out effect."""
+    """Create a closing card with optional title and branding text.
+
+    Shows the video title (if provided) and a subtle
+    "Made with Video Composer" line, using the theme's font settings.
+    """
     from assemble.themes import _hex_to_rgb
 
     bg_rgb = _hex_to_rgb(theme.bg_color)
@@ -187,9 +245,128 @@ def _create_closing_card(
         .with_fps(fps)
     )
 
-    closing_card = CompositeVideoClip([bg], size=resolution).with_duration(duration)
+    layers = [bg]
+
+    # Branding text — small and centred
+    branding_text = "Made with Video Composer"
+    branding_size = max(theme.font_size // 3, 16)
+    try:
+        branding = (
+            TextClip(
+                text=branding_text,
+                font=theme.font,
+                font_size=branding_size,
+                color=theme.font_color,
+                text_align="center",
+                size=resolution,
+                method="caption",
+            )
+            .with_duration(duration)
+            .with_position("center")
+        )
+    except Exception:
+        branding = (
+            TextClip(
+                text=branding_text,
+                font_size=branding_size,
+                color=theme.font_color,
+                text_align="center",
+                size=resolution,
+                method="caption",
+            )
+            .with_duration(duration)
+            .with_position("center")
+        )
+    layers.append(branding)
+
+    closing_card = CompositeVideoClip(layers, size=resolution).with_duration(duration)
     closing_card = closing_card.with_effects([vfx.CrossFadeOut(min(1.0, duration))])
     return closing_card
+
+
+# ---------------------------------------------------------------------------
+# Text overlays
+# ---------------------------------------------------------------------------
+
+def _create_text_overlay(
+    text_data: dict,
+    theme: Theme,
+    resolution: tuple[int, int],
+    fps: int,
+) -> CompositeVideoClip | None:
+    """Create a text overlay clip from a TextElement dict.
+
+    Supports styles: title, subtitle, caption, lower_third
+    Supports animations: fade, slide_up, none
+    """
+    text = text_data.get("text", "")
+    if not text:
+        return None
+
+    duration = text_data.get("duration", 3.0)
+    style = text_data.get("style", "title")
+    animation = text_data.get("animation", "fade")
+    color = text_data.get("color", theme.font_color)
+    font_size = text_data.get("font_size", theme.font_size)
+    bg_color_hex = text_data.get("bg_color", "")
+
+    # Adjust font size by style
+    if style == "subtitle":
+        font_size = int(font_size * 0.7)
+    elif style == "caption":
+        font_size = int(font_size * 0.5)
+    elif style == "lower_third":
+        font_size = int(font_size * 0.6)
+
+    try:
+        txt_clip = TextClip(
+            text=text,
+            font=theme.font,
+            font_size=font_size,
+            color=color,
+            text_align="center",
+            method="caption",
+            size=(int(resolution[0] * 0.8), None),
+        ).with_duration(duration)
+    except Exception:
+        txt_clip = TextClip(
+            text=text,
+            font_size=font_size,
+            color=color,
+            text_align="center",
+            method="caption",
+            size=(int(resolution[0] * 0.8), None),
+        ).with_duration(duration)
+
+    # Position based on style
+    rel_y = text_data.get("y", 0.5)
+    if style == "lower_third":
+        txt_clip = txt_clip.with_position(("center", 0.8), relative=True)
+    elif style == "caption":
+        txt_clip = txt_clip.with_position(("center", 0.85), relative=True)
+    elif style == "subtitle":
+        txt_clip = txt_clip.with_position(("center", 0.65), relative=True)
+    else:
+        txt_clip = txt_clip.with_position(("center", rel_y), relative=True)
+
+    # Add background bar for lower_third style
+    if style == "lower_third" and not bg_color_hex:
+        bg_color_hex = "#000000"
+
+    # Apply animation
+    effects = []
+    if animation == "fade":
+        fade_dur = min(0.5, duration / 3)
+        effects.append(vfx.CrossFadeIn(fade_dur))
+        effects.append(vfx.CrossFadeOut(fade_dur))
+    elif animation == "slide_up":
+        effects.append(vfx.CrossFadeIn(0.3))
+        effects.append(vfx.CrossFadeOut(0.3))
+
+    if effects:
+        txt_clip = txt_clip.with_effects(effects)
+
+    return txt_clip
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +460,8 @@ def build_video(
     theme_name: str = "minimal",
     music_path: str | None = None,
     output_path: str | None = None,
+    progress_callback: "Callable[[int, str], None] | None" = None,
+    text_elements: list[dict] | None = None,
 ) -> str:
     """Assemble a final video from an EditDecisionList.
 
@@ -292,27 +471,41 @@ def build_video(
         music_path: Optional path to a background music file.
         output_path: Where to write the final MP4. Defaults to
             ``config.OUTPUT_DIR / "{edl.title}.mp4"``.
+        progress_callback: Optional function called with (percent, message)
+            during assembly for progress reporting.
+        text_elements: Optional list of text overlay dicts from the
+            project timeline's text track.
 
     Returns:
         The absolute path to the rendered video file as a string.
     """
     theme = get_theme(theme_name)
     fps = config.DEFAULT_OUTPUT_FPS
-    resolution = config.DEFAULT_OUTPUT_RESOLUTION
+    resolution = theme.resolution_override or config.DEFAULT_OUTPUT_RESOLUTION
     transition_dur = config.DEFAULT_TRANSITION_DURATION
 
     _print_progress(f"Theme: {theme.name}")
     _print_progress(f"Resolution: {resolution[0]}x{resolution[1]} @ {fps}fps")
     _print_progress(f"Shots to process: {len(edl.shots)}")
 
+    def _report(pct: int, msg: str) -> None:
+        _print_progress(msg)
+        if progress_callback:
+            progress_callback(pct, msg)
+
     # --- Build individual clips -------------------------------------------
 
     shot_clips: list = []
+    total_shots = len(edl.shots)
     for i, shot in enumerate(edl.shots):
-        _print_progress(
-            f"Processing shot {i + 1}/{len(edl.shots)}: "
+        shot_msg = (
+            f"Processing shot {i + 1}/{total_shots}: "
             f"{shot.media_type} — {shot.role} — {Path(shot.path).name}"
         )
+        # Map shot progress to 10-70% range
+        shot_pct = 10 + int((i / max(total_shots, 1)) * 60)
+        _report(shot_pct, shot_msg)
+
         if shot.media_type == "photo":
             clip = _prepare_photo_clip(shot, theme, resolution, fps)
         elif shot.media_type == "video":
@@ -331,26 +524,26 @@ def build_video(
     if not shot_clips:
         raise RuntimeError("No valid shots could be loaded — cannot build video.")
 
-    _print_progress(f"Loaded {len(shot_clips)} clips successfully")
+    _report(70, f"Loaded {len(shot_clips)} clips successfully")
 
     # --- Title card -------------------------------------------------------
 
     title_dur = 3.0
-    _print_progress("Creating title card...")
+    _report(72, "Creating title card...")
     title_card = _create_title_card(edl.title, theme, title_dur, resolution, fps)
     title_card = apply_color_filter(title_card, theme)
 
     # --- Closing card -----------------------------------------------------
 
     closing_dur = 2.0
-    _print_progress("Creating closing card...")
-    closing_card = _create_closing_card(theme, closing_dur, resolution, fps)
+    _report(75, "Creating closing card...")
+    closing_card = _create_closing_card(theme, closing_dur, resolution, fps, title=edl.title)
 
     all_clips = [title_card] + shot_clips + [closing_card]
 
     # --- Transitions ------------------------------------------------------
 
-    _print_progress(f"Applying transitions ({theme.transition_type})...")
+    _report(78, f"Applying transitions ({theme.transition_type})...")
 
     if theme.transition_type == "fade_black":
         # For fade-through-black, apply fades and concatenate sequentially
@@ -363,10 +556,29 @@ def build_video(
 
     _print_progress(f"Video duration: {final_video.duration:.1f}s")
 
+    # --- Text overlays ----------------------------------------------------
+
+    if text_elements:
+        _report(80, "Adding text overlays...")
+        text_clips = []
+        for te in text_elements:
+            overlay = _create_text_overlay(te, theme, resolution, fps)
+            if overlay is not None:
+                position = te.get("position", 0.0)
+                overlay = overlay.with_start(position)
+                text_clips.append(overlay)
+
+        if text_clips:
+            # Composite text overlays on top of the main video
+            final_video = CompositeVideoClip(
+                [final_video] + text_clips,
+                size=resolution,
+            ).with_duration(final_video.duration)
+
     # --- Music ------------------------------------------------------------
 
     if music_path is not None:
-        _print_progress("Adding background music...")
+        _report(82, "Adding background music...")
         music = _prepare_music(music_path, final_video.duration)
         if music is not None:
             if final_video.audio is not None:
@@ -386,7 +598,7 @@ def build_video(
         ).strip()
         output_path = str(config.OUTPUT_DIR / f"{safe_title}.mp4")
 
-    _print_progress(f"Rendering to {output_path}...")
+    _report(85, f"Encoding video to {Path(output_path).name}...")
     try:
         final_video.write_videofile(
             output_path,

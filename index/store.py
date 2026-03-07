@@ -279,7 +279,10 @@ def get_all_embeddings() -> tuple[list[str], np.ndarray]:
     return uuids, matrix
 
 
-def list_media(limit: int = 20, offset: int = 0, sort_by: str = "date") -> list[dict]:
+def list_media(limit: int = 20, offset: int = 0, sort_by: str = "date",
+               media_type: str | None = None,
+               date_from: str | None = None,
+               date_to: str | None = None) -> list[dict]:
     """List indexed media with pagination and sorting."""
     client = _get_client()
 
@@ -290,13 +293,18 @@ def list_media(limit: int = 20, offset: int = 0, sort_by: str = "date") -> list[
     }
     col, desc = sort_map.get(sort_by, ("date", True))
 
-    resp = (
+    query = (
         client.table("media")
         .select("*")
         .order(col, desc=desc, nullsfirst=False)
-        .range(offset, offset + limit - 1)
-        .execute()
     )
+    if media_type:
+        query = query.eq("media_type", media_type)
+    if date_from:
+        query = query.gte("date", date_from)
+    if date_to:
+        query = query.lte("date", date_to + "T23:59:59")
+    resp = query.range(offset, offset + limit - 1).execute()
     return [_row_to_dict(row) for row in resp.data]
 
 
@@ -320,10 +328,19 @@ def delete_all_media() -> int:
     return count
 
 
-def count_media() -> int:
+def count_media(media_type: str | None = None,
+                date_from: str | None = None,
+                date_to: str | None = None) -> int:
     """Return the total number of media records in the database."""
     client = _get_client()
-    resp = client.table("media").select("uuid", count="exact").limit(0).execute()
+    query = client.table("media").select("uuid", count="exact")
+    if media_type:
+        query = query.eq("media_type", media_type)
+    if date_from:
+        query = query.gte("date", date_from)
+    if date_to:
+        query = query.lte("date", date_to + "T23:59:59")
+    resp = query.limit(0).execute()
     return resp.count or 0
 
 

@@ -51,6 +51,11 @@ UPLOADS_DIR.mkdir(exist_ok=True)
 
 ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".heic", ".webp", ".tiff", ".bmp", ".gif"}
 ALLOWED_VIDEO_EXT = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
+ALLOWED_AUDIO_EXT = {".mp3", ".wav", ".aac", ".m4a", ".ogg", ".flac", ".wma"}
+
+# Music uploads directory
+MUSIC_DIR = config.PROJECT_ROOT / "uploads" / "music"
+MUSIC_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # Thumbnail cache
@@ -86,12 +91,14 @@ def _generate_thumbnail(original_path: str) -> Path:
 # Background job tracking
 # ---------------------------------------------------------------------------
 _jobs: dict[str, dict] = {}
+_jobs_lock = threading.Lock()
 
 
 def _update_job(job_id: str, **kwargs):
-    if job_id in _jobs:
-        _jobs[job_id].update(kwargs)
-        _jobs[job_id]["updated_at"] = time.time()
+    with _jobs_lock:
+        if job_id in _jobs:
+            _jobs[job_id].update(kwargs)
+            _jobs[job_id]["updated_at"] = time.time()
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +110,8 @@ class SearchRequest(BaseModel):
     albums: Optional[list[str]] = None
     persons: Optional[list[str]] = None
     min_quality: Optional[float] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
     limit: int = 20
     fast: bool = False
 
@@ -123,6 +132,7 @@ class PreviewRequest(BaseModel):
     persons: Optional[list[str]] = None
     min_quality: Optional[float] = None
     num_candidates: int = 30
+    uuids: Optional[list[str]] = None
 
 
 class GenerateRequest(BaseModel):
@@ -134,6 +144,22 @@ class GenerateRequest(BaseModel):
     persons: Optional[list[str]] = None
     min_quality: Optional[float] = None
     num_candidates: int = 30
+    uuids: Optional[list[str]] = None
+
+
+class CustomShotInput(BaseModel):
+    uuid: str
+    start_time: float
+    end_time: float
+    role: str = "highlight"
+    reason: str = ""
+
+
+class CustomGenerateRequest(BaseModel):
+    shots: list[CustomShotInput]
+    title: str = "Custom Video"
+    theme: str = "minimal"
+    music_path: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -208,9 +234,13 @@ def get_media(
     limit: int = Query(24, ge=1, le=200),
     offset: int = Query(0, ge=0),
     sort: str = Query("date", pattern="^(date|quality|recent)$"),
+    media_type: str | None = Query(None, pattern="^(photo|video)$"),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
 ):
-    items = list_media(limit=limit, offset=offset, sort_by=sort)
-    total = count_media()
+    items = list_media(limit=limit, offset=offset, sort_by=sort, media_type=media_type,
+                       date_from=date_from, date_to=date_to)
+    total = count_media(media_type=media_type, date_from=date_from, date_to=date_to)
     # Strip embeddings from response (they're large binary blobs)
     for item in items:
         item.pop("embedding", None)
@@ -392,9 +422,9 @@ def _embed_with_clip(file_path: str, media_type: str):
     return embed_image(embed_path)
 
 
-def _process_upload_embedding(file_path: str, media_uuid: str, media_type: str):
-    """Background: compute embedding (Twelve Labs or CLIP) and update the DB record."""
-    from index.store import update_embedding
+def _process_upload_embedding(file_path: str, media_uuid: str, media_type: str, describe: bool = False):
+    """Background: compute embedding (Twelve Labs or CLIP) and optionally AI-describe."""
+    from index.store import update_embedding, upsert_media, get_media_by_uuids
     try:
         embedding = None
 
@@ -414,6 +444,21 @@ def _process_upload_embedding(file_path: str, media_uuid: str, media_type: str):
         if embedding is not None:
             update_embedding(media_uuid, embedding)
 
+        if describe and media_type == "photo":
+            try:
+                from index.vision_describe import describe_image
+                description = describe_image(file_path)
+                quality_score = description.get("quality_score")
+                items = get_media_by_uuids([media_uuid])
+                if items:
+                    item = items[0]
+                    item["description"] = description
+                    item["quality_score"] = quality_score
+                    upsert_media(item)
+                logger.info("AI description generated for %s", media_uuid[:8])
+            except Exception as exc:
+                logger.warning("Vision describe failed for %s: %s", media_uuid[:8], exc)
+
         logger.info("Embedding processed: %s (%s) [%s]", media_uuid[:8], media_type,
                      "Twelve Labs" if config.USE_TWELVELABS and embedding is not None else "CLIP")
     except Exception as exc:
@@ -429,7 +474,7 @@ def _upload_to_supabase_storage(content: bytes, bucket: str, path: str, content_
 
 
 @app.post("/api/upload")
-async def upload_files(files: list[UploadFile] = File(...)):
+async def upload_files(files: list[UploadFile] = File(...), describe: bool = Query(False)):
     """Upload photos/videos from the user's filesystem."""
     from index.store import upsert_media
     results = []
@@ -492,10 +537,10 @@ async def upload_files(files: list[UploadFile] = File(...)):
         }
         upsert_media(record)
 
-        # Compute embedding in background thread (uses local file)
+        # Compute embedding (and optionally describe) in background thread
         thread = threading.Thread(
             target=_process_upload_embedding,
-            args=(file_path, media_uuid, media_type),
+            args=(file_path, media_uuid, media_type, describe),
             daemon=True,
         )
         thread.start()
@@ -511,6 +556,31 @@ async def upload_files(files: list[UploadFile] = File(...)):
 
 
 # ---------------------------------------------------------------------------
+# Music upload
+# ---------------------------------------------------------------------------
+
+@app.post("/api/upload-music")
+async def upload_music(file: UploadFile = File(...)):
+    """Upload a music/audio file for use as video soundtrack."""
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_AUDIO_EXT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported audio format: {ext}. Allowed: {', '.join(sorted(ALLOWED_AUDIO_EXT))}",
+        )
+
+    safe_name = f"{uuid_mod.uuid4().hex[:12]}{ext}"
+    dest = MUSIC_DIR / safe_name
+    content = await file.read()
+    dest.write_bytes(content)
+
+    return {
+        "path": str(dest),
+        "filename": file.filename or safe_name,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
 
@@ -520,10 +590,14 @@ def search_media(req: SearchRequest):
         results = search_by_description(query=req.query, limit=req.limit)
     else:
         from curate.search import hybrid_search
+        date_range = None
+        if req.date_from or req.date_to:
+            date_range = (req.date_from or "", req.date_to or "")
         results = hybrid_search(
             query=req.query,
             albums=req.albums,
             persons=req.persons,
+            date_range=date_range,
             min_quality=req.min_quality,
             limit=req.limit,
         )
@@ -634,15 +708,16 @@ def _run_index_job(job_id: str, req: IndexRequest):
 @app.post("/api/index")
 def start_indexing(req: IndexRequest):
     job_id = str(uuid_mod.uuid4())[:8]
-    _jobs[job_id] = {
-        "id": job_id,
-        "type": "index",
-        "status": "queued",
-        "progress": 0,
-        "message": "Starting...",
-        "created_at": time.time(),
-        "updated_at": time.time(),
-    }
+    with _jobs_lock:
+        _jobs[job_id] = {
+            "id": job_id,
+            "type": "index",
+            "status": "queued",
+            "progress": 0,
+            "message": "Starting...",
+            "created_at": time.time(),
+            "updated_at": time.time(),
+        }
     thread = threading.Thread(target=_run_index_job, args=(job_id, req), daemon=True)
     thread.start()
     return {"job_id": job_id, "status": "queued"}
@@ -658,13 +733,20 @@ def preview_video(req: PreviewRequest):
     from curate.director import create_edit_decision_list
     from dataclasses import asdict
 
-    candidates = hybrid_search(
-        query=req.prompt,
-        albums=req.albums,
-        persons=req.persons,
-        min_quality=req.min_quality,
-        limit=req.num_candidates,
-    )
+    if req.uuids:
+        candidates = get_media_by_uuids(req.uuids)
+        # Strip embeddings from candidates
+        for c in candidates:
+            c.pop("embedding", None)
+            c.pop("clip_embedding", None)
+    else:
+        candidates = hybrid_search(
+            query=req.prompt,
+            albums=req.albums,
+            persons=req.persons,
+            min_quality=req.min_quality,
+            limit=req.num_candidates,
+        )
 
     if not candidates:
         raise HTTPException(status_code=404, detail="No matching media found. Index some media first.")
@@ -705,17 +787,24 @@ def _run_generate_job(job_id: str, req: GenerateRequest):
     try:
         from curate.search import hybrid_search
         from curate.director import create_edit_decision_list
-        from assemble.builder import build_video
+        from assemble import get_build_video
+        build_video = get_build_video()
 
         _update_job(job_id, status="running", message="Searching for matching clips...")
 
-        candidates = hybrid_search(
-            query=req.prompt,
-            albums=req.albums,
-            persons=req.persons,
-            min_quality=req.min_quality,
-            limit=req.num_candidates,
-        )
+        if req.uuids:
+            candidates = get_media_by_uuids(req.uuids)
+            for c in candidates:
+                c.pop("embedding", None)
+                c.pop("clip_embedding", None)
+        else:
+            candidates = hybrid_search(
+                query=req.prompt,
+                albums=req.albums,
+                persons=req.persons,
+                min_quality=req.min_quality,
+                limit=req.num_candidates,
+            )
 
         if not candidates:
             _update_job(job_id, status="failed", message="No matching media found")
@@ -731,10 +820,16 @@ def _run_generate_job(job_id: str, req: GenerateRequest):
 
         _update_job(job_id, progress=40, message=f"EDL ready: {len(edl.shots)} shots. Rendering...")
 
+        def _on_progress(pct: int, msg: str):
+            # Map builder's 10-85% to our 40-95% range
+            mapped = 40 + int((pct / 100) * 55)
+            _update_job(job_id, progress=min(mapped, 95), message=msg)
+
         output_path = build_video(
             edl=edl,
             theme_name=req.theme,
             music_path=req.music,
+            progress_callback=_on_progress,
         )
 
         filename = Path(output_path).name
@@ -751,16 +846,111 @@ def _run_generate_job(job_id: str, req: GenerateRequest):
 @app.post("/api/generate")
 def start_generate(req: GenerateRequest):
     job_id = str(uuid_mod.uuid4())[:8]
-    _jobs[job_id] = {
-        "id": job_id,
-        "type": "generate",
-        "status": "queued",
-        "progress": 0,
-        "message": "Starting...",
-        "created_at": time.time(),
-        "updated_at": time.time(),
-    }
+    with _jobs_lock:
+        _jobs[job_id] = {
+            "id": job_id,
+            "type": "generate",
+            "status": "queued",
+            "progress": 0,
+            "message": "Starting...",
+            "created_at": time.time(),
+            "updated_at": time.time(),
+        }
     thread = threading.Thread(target=_run_generate_job, args=(job_id, req), daemon=True)
+    thread.start()
+    return {"job_id": job_id, "status": "queued"}
+
+
+# ---------------------------------------------------------------------------
+# Custom generate (user-reordered EDL)
+# ---------------------------------------------------------------------------
+
+def _run_custom_generate_job(job_id: str, req: CustomGenerateRequest):
+    try:
+        from curate.director import Shot as DShot, EditDecisionList
+        from assemble import get_build_video
+        build_video = get_build_video()
+
+        _update_job(job_id, status="running", message="Resolving media paths...")
+
+        # Look up actual file paths for each shot UUID
+        uuids = [s.uuid for s in req.shots]
+        media_items = get_media_by_uuids(uuids)
+        path_map = {m["uuid"]: m for m in media_items}
+
+        shots = []
+        for s in req.shots:
+            info = path_map.get(s.uuid)
+            if not info:
+                logger.warning("UUID %s not found, skipping", s.uuid)
+                continue
+
+            # Resolve to local path if possible
+            local_path = _resolve_local_path(info.get("path", ""), s.uuid)
+            path = local_path or info.get("path", "")
+
+            shots.append(DShot(
+                uuid=s.uuid,
+                path=path,
+                media_type=info.get("media_type", "photo"),
+                start_time=s.start_time,
+                end_time=s.end_time,
+                role=s.role,
+                reason=s.reason,
+            ))
+
+        if not shots:
+            _update_job(job_id, status="failed", message="No valid shots found")
+            return
+
+        edl = EditDecisionList(
+            shots=shots,
+            title=req.title,
+            narrative_summary=f"Custom edit with {len(shots)} shots",
+            estimated_duration=sum(s.end_time - s.start_time for s in shots),
+            music_mood="custom",
+        )
+
+        _update_job(job_id, progress=40, message=f"Rendering {len(shots)} shots...")
+
+        def _on_progress(pct: int, msg: str):
+            mapped = 40 + int((pct / 100) * 55)
+            _update_job(job_id, progress=min(mapped, 95), message=msg)
+
+        output_path = build_video(
+            edl=edl,
+            theme_name=req.theme,
+            music_path=req.music_path,
+            progress_callback=_on_progress,
+        )
+
+        filename = Path(output_path).name
+        _update_job(job_id, status="completed", progress=100,
+                    message="Video rendered successfully",
+                    output_path=f"/output/{filename}",
+                    title=req.title)
+
+    except Exception as exc:
+        logger.error("Custom generate job %s failed: %s", job_id, exc, exc_info=True)
+        _update_job(job_id, status="failed", message=str(exc))
+
+
+@app.post("/api/generate-custom")
+def start_custom_generate(req: CustomGenerateRequest):
+    if not req.shots:
+        raise HTTPException(status_code=400, detail="At least one shot is required")
+    job_id = str(uuid_mod.uuid4())[:8]
+    with _jobs_lock:
+        _jobs[job_id] = {
+            "id": job_id,
+            "type": "generate-custom",
+            "status": "queued",
+            "progress": 0,
+            "message": "Starting custom render...",
+            "created_at": time.time(),
+            "updated_at": time.time(),
+        }
+    thread = threading.Thread(target=_run_custom_generate_job, args=(job_id, req), daemon=True)
     thread.start()
     return {"job_id": job_id, "status": "queued"}
 
@@ -771,14 +961,16 @@ def start_generate(req: GenerateRequest):
 
 @app.get("/api/jobs/{job_id}")
 def get_job_status(job_id: str):
-    if job_id not in _jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return _jobs[job_id]
+    with _jobs_lock:
+        if job_id not in _jobs:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return dict(_jobs[job_id])
 
 
 @app.get("/api/jobs")
 def list_jobs():
-    return {"jobs": list(_jobs.values())}
+    with _jobs_lock:
+        return {"jobs": [dict(j) for j in _jobs.values()]}
 
 
 # ---------------------------------------------------------------------------
@@ -797,3 +989,300 @@ def list_videos():
             "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
         })
     return {"videos": videos}
+
+
+@app.delete("/api/videos/{filename}")
+def delete_video(filename: str):
+    # Validate filename: no path traversal
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    filepath = (config.OUTPUT_DIR / filename).resolve()
+    # Ensure resolved path is still within OUTPUT_DIR
+    if not str(filepath).startswith(str(config.OUTPUT_DIR.resolve())):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="Video not found")
+    filepath.unlink()
+    # Also remove cached thumbnail if it exists
+    thumb = _get_thumbnail_path(str(filepath))
+    if thumb.exists():
+        thumb.unlink()
+    return {"deleted": True, "filename": filename}
+
+
+@app.get("/api/videos/{filename}/thumbnail")
+def get_video_thumbnail(filename: str):
+    # Validate filename: no path traversal
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    filepath = (config.OUTPUT_DIR / filename).resolve()
+    if not str(filepath).startswith(str(config.OUTPUT_DIR.resolve())):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="Video not found")
+    thumb_path = _get_thumbnail_path(str(filepath))
+    if not thumb_path.exists():
+        try:
+            import subprocess
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", str(filepath), "-ss", "1", "-vframes", "1",
+                 "-vf", f"scale={THUMB_SIZE[0]}:-1", str(thumb_path)],
+                capture_output=True, timeout=10,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Thumbnail generation failed: {exc}")
+    if not thumb_path.exists():
+        raise HTTPException(status_code=500, detail="Thumbnail generation produced no output")
+    return FileResponse(str(thumb_path), media_type="image/jpeg")
+
+
+# ---------------------------------------------------------------------------
+# Projects
+# ---------------------------------------------------------------------------
+
+from projects import (
+    Project as ProjectModel,
+    save_project,
+    load_project,
+    list_projects as list_projects_fn,
+    delete_project as delete_project_fn,
+    edl_to_project,
+    _project_to_dict,
+    _dict_to_project,
+)
+
+
+class CreateProjectRequest(BaseModel):
+    name: str = "Untitled Project"
+    prompt: str = ""
+    theme: str = "minimal"
+
+
+class UpdateProjectRequest(BaseModel):
+    """Accepts a full or partial project dict for saving."""
+    project: dict
+
+
+@app.get("/api/projects")
+def api_list_projects():
+    return {"projects": list_projects_fn()}
+
+
+@app.post("/api/projects")
+def api_create_project(req: CreateProjectRequest):
+    project = ProjectModel(name=req.name, prompt=req.prompt, theme=req.theme)
+    project_id = save_project(project)
+    return {"id": project_id, "project": _project_to_dict(project)}
+
+
+@app.get("/api/projects/{project_id}")
+def api_get_project(project_id: str):
+    try:
+        project = load_project(project_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return _project_to_dict(project)
+
+
+@app.put("/api/projects/{project_id}")
+def api_update_project(project_id: str, req: UpdateProjectRequest):
+    try:
+        existing = load_project(project_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Merge the incoming dict into the existing project
+    data = req.project
+    data["id"] = project_id  # prevent ID change
+    data["created_at"] = existing.created_at  # preserve creation time
+    project = _dict_to_project(data)
+    save_project(project)
+    return _project_to_dict(project)
+
+
+@app.delete("/api/projects/{project_id}")
+def api_delete_project(project_id: str):
+    if delete_project_fn(project_id):
+        return {"deleted": True}
+    raise HTTPException(status_code=404, detail="Project not found")
+
+
+@app.post("/api/projects/{project_id}/preview")
+def api_project_preview(project_id: str):
+    """Generate an EDL from the project's prompt, convert to timeline, and save."""
+    try:
+        project = load_project(project_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not project.prompt:
+        raise HTTPException(status_code=400, detail="Project has no prompt")
+
+    from curate.search import hybrid_search
+    from curate.director import create_edit_decision_list
+    from dataclasses import asdict as dc_asdict
+
+    candidates = hybrid_search(query=project.prompt, limit=30)
+    for c in candidates:
+        c.pop("embedding", None)
+        c.pop("clip_embedding", None)
+
+    edl = create_edit_decision_list(
+        candidates=candidates,
+        prompt=project.prompt,
+        target_duration=60.0,
+    )
+
+    # Convert EDL to project timeline
+    new_project = edl_to_project(
+        edl_data=dc_asdict(edl),
+        prompt=project.prompt,
+        theme=project.theme,
+        music_path=project.music_path,
+    )
+    # Preserve original project metadata
+    new_project.id = project.id
+    new_project.created_at = project.created_at
+    new_project.render_history = project.render_history
+    new_project.resolution = project.resolution
+    new_project.fps = project.fps
+
+    save_project(new_project)
+    return _project_to_dict(new_project)
+
+
+@app.post("/api/projects/{project_id}/render")
+def api_project_render(project_id: str, background_tasks: BackgroundTasks):
+    """Render a project's timeline to video."""
+    try:
+        project = load_project(project_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    video_track = None
+    for track in project.timeline.tracks:
+        if track.type == "video" and track.clips:
+            video_track = track
+            break
+
+    if not video_track or not video_track.clips:
+        raise HTTPException(status_code=400, detail="No video clips in timeline")
+
+    job_id = uuid_mod.uuid4().hex[:12]
+    _jobs[job_id] = {
+        "id": job_id,
+        "type": "project_render",
+        "status": "queued",
+        "progress": 0,
+        "message": "Queued for rendering...",
+        "created_at": time.time(),
+        "updated_at": time.time(),
+        "project_id": project_id,
+    }
+
+    thread = threading.Thread(
+        target=_run_project_render,
+        args=(job_id, project_id),
+        daemon=True,
+    )
+    thread.start()
+
+    return {"job_id": job_id}
+
+
+def _run_project_render(job_id: str, project_id: str):
+    """Background thread: render a project's timeline using the assembly pipeline."""
+    try:
+        _update_job(job_id, status="running", progress=5, message="Loading project...")
+
+        project = load_project(project_id)
+        video_track = None
+        for track in project.timeline.tracks:
+            if track.type == "video" and track.clips:
+                video_track = track
+                break
+
+        if not video_track:
+            _update_job(job_id, status="failed", message="No video clips found")
+            return
+
+        # Convert project timeline clips back to EDL format for the assembly pipeline
+        from curate.director import Shot, EditDecisionList
+
+        shots = []
+        for clip in video_track.clips:
+            shots.append(Shot(
+                uuid=clip.media_uuid,
+                path=clip.media_path,
+                media_type=clip.media_type,
+                start_time=clip.in_point,
+                end_time=clip.out_point if clip.out_point > clip.in_point else clip.in_point + clip.duration,
+                role=clip.role,
+                reason=clip.reason,
+            ))
+
+        edl = EditDecisionList(
+            shots=shots,
+            title=project.name,
+            narrative_summary=project.narrative_summary,
+            estimated_duration=project.timeline.duration,
+            music_mood=project.music_mood,
+        )
+
+        _update_job(job_id, progress=10, message="Starting video assembly...")
+
+        from assemble import get_build_video
+        build_video = get_build_video()
+
+        # Collect text elements from text tracks
+        text_elements = []
+        for track in project.timeline.tracks:
+            if track.type == "text" and not track.muted:
+                for te in track.text_elements:
+                    text_elements.append({
+                        "text": te.text,
+                        "position": te.position,
+                        "duration": te.duration,
+                        "x": te.x,
+                        "y": te.y,
+                        "font_size": te.font_size,
+                        "color": te.color,
+                        "bg_color": te.bg_color,
+                        "animation": te.animation,
+                        "style": te.style,
+                    })
+
+        def progress_cb(pct: int, msg: str):
+            _update_job(job_id, progress=pct, message=msg)
+
+        output = build_video(
+            edl=edl,
+            theme_name=project.theme,
+            music_path=project.music_path or None,
+            progress_callback=progress_cb,
+            text_elements=text_elements or None,
+        )
+
+        # Record render in project history
+        from projects import RenderRecord
+        record = RenderRecord(
+            output_path=f"/output/{Path(output).name}",
+            theme=project.theme,
+            resolution=f"{project.resolution[0]}x{project.resolution[1]}",
+            duration=project.timeline.duration,
+        )
+        project.render_history.append(record)
+        save_project(project)
+
+        _update_job(
+            job_id,
+            status="completed",
+            progress=100,
+            message="Video rendered!",
+            output_path=f"/output/{Path(output).name}",
+            title=project.name,
+        )
+
+    except Exception as exc:
+        logger.exception("Project render failed for %s", project_id)
+        _update_job(job_id, status="failed", message=str(exc))

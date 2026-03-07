@@ -16,11 +16,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const fetchStats = () => request<Stats>('/api/stats')
 
 // Media
-export const fetchMedia = (params: { limit?: number; offset?: number; sort?: string }) => {
+export const fetchMedia = (params: { limit?: number; offset?: number; sort?: string; media_type?: string; date_from?: string; date_to?: string }) => {
   const q = new URLSearchParams()
   if (params.limit) q.set('limit', String(params.limit))
   if (params.offset) q.set('offset', String(params.offset))
   if (params.sort) q.set('sort', params.sort)
+  if (params.media_type) q.set('media_type', params.media_type)
+  if (params.date_from) q.set('date_from', params.date_from)
+  if (params.date_to) q.set('date_to', params.date_to)
   return request<MediaListResponse>(`/api/media?${q}`)
 }
 
@@ -53,13 +56,36 @@ export const fetchJobs = () => request<{ jobs: Job[] }>('/api/jobs')
 // Videos
 export const fetchVideos = () => request<{ videos: VideoFile[] }>('/api/videos')
 
+export const deleteVideo = (filename: string) =>
+  request<{ deleted: boolean; filename: string }>(`/api/videos/${encodeURIComponent(filename)}`, { method: 'DELETE' })
+
+export const videoThumbnailUrl = (filename: string) =>
+  `/api/videos/${encodeURIComponent(filename)}/thumbnail`
+
+// Music upload
+export async function uploadMusic(file: File): Promise<MusicUploadResponse> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await fetch('/api/upload-music', { method: 'POST', body: formData })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.detail || `Music upload failed: ${res.status}`)
+  }
+  return res.json()
+}
+
+// Custom generate (user-reordered EDL)
+export const startCustomGenerate = (body: CustomGenerateRequest) =>
+  request<{ job_id: string }>('/api/generate-custom', { method: 'POST', body: JSON.stringify(body) })
+
 // Upload
-export async function uploadFiles(files: FileList | File[]): Promise<UploadResponse> {
+export async function uploadFiles(files: FileList | File[], describe = false): Promise<UploadResponse> {
   const formData = new FormData()
   for (const file of Array.from(files)) {
     formData.append('files', file)
   }
-  const res = await fetch('/api/upload', { method: 'POST', body: formData })
+  const url = describe ? '/api/upload?describe=true' : '/api/upload'
+  const res = await fetch(url, { method: 'POST', body: formData })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error(body.detail || `Upload failed: ${res.status}`)
@@ -120,6 +146,8 @@ export interface SearchRequest {
   albums?: string[]
   persons?: string[]
   min_quality?: number
+  date_from?: string
+  date_to?: string
   limit?: number
   fast?: boolean
 }
@@ -146,6 +174,7 @@ export interface PreviewRequest {
   persons?: string[]
   min_quality?: number
   num_candidates?: number
+  uuids?: string[]
 }
 
 export interface GenerateRequest {
@@ -157,6 +186,7 @@ export interface GenerateRequest {
   persons?: string[]
   min_quality?: number
   num_candidates?: number
+  uuids?: string[]
 }
 
 export interface EDLResponse {
@@ -196,3 +226,143 @@ export interface VideoFile {
   size_mb: number
   created_at: string
 }
+
+export interface MusicUploadResponse {
+  path: string
+  filename: string
+}
+
+export interface CustomShotInput {
+  uuid: string
+  start_time: number
+  end_time: number
+  role: string
+  reason: string
+}
+
+export interface CustomGenerateRequest {
+  shots: CustomShotInput[]
+  title: string
+  theme: string
+  music_path?: string
+}
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+export interface ClipEffect {
+  type: string
+  params: Record<string, any>
+}
+
+export interface ClipTransition {
+  type: string
+  duration: number
+}
+
+export interface TimelineClip {
+  id: string
+  media_uuid: string
+  media_path: string
+  media_type: string
+  in_point: number
+  out_point: number
+  position: number
+  duration: number
+  volume: number
+  effects: ClipEffect[]
+  transition: ClipTransition
+  role: string
+  reason: string
+}
+
+export interface TextElement {
+  id: string
+  text: string
+  position: number
+  duration: number
+  x: number
+  y: number
+  font_size: number
+  font_family: string
+  color: string
+  bg_color: string
+  animation: string
+  style: string
+}
+
+export interface TimelineTrack {
+  id: string
+  name: string
+  type: string
+  clips: TimelineClip[]
+  text_elements: TextElement[]
+  muted: boolean
+  locked: boolean
+  volume: number
+}
+
+export interface Timeline {
+  tracks: TimelineTrack[]
+  duration: number
+}
+
+export interface RenderRecord {
+  id: string
+  output_path: string
+  rendered_at: number
+  theme: string
+  resolution: string
+  duration: number
+}
+
+export interface ProjectData {
+  id: string
+  name: string
+  prompt: string
+  created_at: number
+  updated_at: number
+  theme: string
+  resolution: [number, number]
+  fps: number
+  music_path: string
+  music_volume: number
+  timeline: Timeline
+  render_history: RenderRecord[]
+  narrative_summary: string
+  music_mood: string
+}
+
+export interface ProjectSummary {
+  id: string
+  name: string
+  prompt: string
+  theme: string
+  created_at: number
+  updated_at: number
+  duration: number
+  track_count: number
+  render_count: number
+}
+
+export const fetchProjects = () =>
+  request<{ projects: ProjectSummary[] }>('/api/projects')
+
+export const createProject = (body: { name?: string; prompt?: string; theme?: string }) =>
+  request<{ id: string; project: ProjectData }>('/api/projects', { method: 'POST', body: JSON.stringify(body) })
+
+export const fetchProject = (id: string) =>
+  request<ProjectData>(`/api/projects/${id}`)
+
+export const updateProject = (id: string, project: ProjectData) =>
+  request<ProjectData>(`/api/projects/${id}`, { method: 'PUT', body: JSON.stringify({ project }) })
+
+export const deleteProjectApi = (id: string) =>
+  request<{ deleted: boolean }>(`/api/projects/${id}`, { method: 'DELETE' })
+
+export const projectPreview = (id: string) =>
+  request<ProjectData>(`/api/projects/${id}/preview`, { method: 'POST' })
+
+export const projectRender = (id: string) =>
+  request<{ job_id: string }>(`/api/projects/${id}/render`, { method: 'POST' })

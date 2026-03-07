@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
-import { fetchStats, fetchJobs, type Stats, type Job } from '../api'
+import { useNavigate } from 'react-router-dom'
+import { fetchStats, fetchJobs, fetchVideos, fetchMedia, thumbnailUrl, type Job, type MediaItem } from '../api'
 import {
-  Image, Film, Cpu, MessageSquare, BarChart3, Users, FolderOpen,
-  Loader2, AlertCircle
+  Image, Film, Cpu, BarChart3, Users, FolderOpen,
+  Loader2, AlertCircle, Upload, Search, Clapperboard, Play, ArrowRight
 } from 'lucide-react'
 
 function StatCard({ icon: Icon, label, value, sub, color }: {
@@ -53,7 +54,8 @@ function JobBadge({ job }: { job: Job }) {
 }
 
 export default function Dashboard() {
-  const { data: stats, isLoading, error } = useQuery({
+  const navigate = useNavigate()
+  const { data: stats, isLoading, error, refetch } = useQuery({
     queryKey: ['stats'],
     queryFn: fetchStats,
     refetchInterval: 5000,
@@ -62,6 +64,14 @@ export default function Dashboard() {
     queryKey: ['jobs'],
     queryFn: fetchJobs,
     refetchInterval: 3000,
+  })
+  const { data: videosData } = useQuery({
+    queryKey: ['videos'],
+    queryFn: fetchVideos,
+  })
+  const { data: recentMedia } = useQuery({
+    queryKey: ['media', 0, 'recent', ''],
+    queryFn: () => fetchMedia({ limit: 8, offset: 0, sort: 'recent' }),
   })
 
   if (isLoading) {
@@ -78,6 +88,12 @@ export default function Dashboard() {
         <AlertCircle className="w-8 h-8 text-red-400" />
         <p className="text-sm">Failed to load stats. Is the API server running?</p>
         <code className="text-xs bg-zinc-800 px-3 py-1.5 rounded">uvicorn api:app --reload</code>
+        <button
+          onClick={() => refetch()}
+          className="mt-3 text-xs text-violet-400 hover:text-violet-300 underline"
+        >
+          Retry
+        </button>
       </div>
     )
   }
@@ -85,12 +101,23 @@ export default function Dashboard() {
   const s = stats!
   const jobs = jobsData?.jobs || []
   const recentJobs = jobs.slice().sort((a, b) => b.created_at - a.created_at).slice(0, 5)
+  const recentVideos = videosData?.videos?.slice(0, 3) || []
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <p className="text-sm text-zinc-400 mt-1">Your media library at a glance</p>
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <p className="text-sm text-zinc-400 mt-1">Your media library at a glance</p>
+        </div>
+        {s.total > 0 && (
+          <button
+            onClick={() => navigate('/studio')}
+            className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            <Clapperboard className="w-4 h-4" /> Create Video
+          </button>
+        )}
       </div>
 
       {/* Stats grid */}
@@ -98,8 +125,103 @@ export default function Dashboard() {
         <StatCard icon={BarChart3} label="Total Indexed" value={s.total} color="bg-violet-500/20 text-violet-300" />
         <StatCard icon={Image} label="Photos" value={s.photos} color="bg-blue-500/20 text-blue-300" />
         <StatCard icon={Film} label="Videos" value={s.videos} color="bg-emerald-500/20 text-emerald-300" />
-        <StatCard icon={Cpu} label="With Embeddings" value={s.with_embeddings} sub={s.with_embeddings < s.total ? "Embedding in progress..." : undefined} color="bg-orange-500/20 text-orange-300" />
+        <StatCard icon={Cpu} label="With Embeddings" value={s.with_embeddings} sub={s.total > 0 ? `${Math.round((s.with_embeddings / s.total) * 100)}% coverage` : undefined} color="bg-orange-500/20 text-orange-300" />
       </div>
+
+      {/* Embedding progress bar */}
+      {s.total > 0 && s.with_embeddings < s.total && (
+        <div className="mb-8 bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-zinc-300">Embedding Progress</span>
+            <span className="text-sm text-zinc-400">{s.with_embeddings} / {s.total}</span>
+          </div>
+          <div className="w-full h-2 bg-zinc-700 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-violet-600 to-violet-400 rounded-full transition-all duration-700"
+              style={{ width: `${Math.round((s.with_embeddings / s.total) * 100)}%` }}
+            />
+          </div>
+          <p className="text-xs text-zinc-500 mt-2">
+            {s.total - s.with_embeddings} items still need embeddings for semantic search
+          </p>
+        </div>
+      )}
+
+      {/* Quick actions */}
+      {s.total > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
+          <button
+            onClick={() => navigate('/library')}
+            className="flex items-center gap-3 bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-4 hover:border-zinc-600 transition-colors text-left group"
+          >
+            <div className="p-2 rounded-lg bg-blue-500/20">
+              <Upload className="w-4 h-4 text-blue-300" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-zinc-200">Upload Media</p>
+              <p className="text-xs text-zinc-500">Add photos & videos</p>
+            </div>
+            <ArrowRight className="w-4 h-4 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+          </button>
+          <button
+            onClick={() => navigate('/search')}
+            className="flex items-center gap-3 bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-4 hover:border-zinc-600 transition-colors text-left group"
+          >
+            <div className="p-2 rounded-lg bg-amber-500/20">
+              <Search className="w-4 h-4 text-amber-300" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-zinc-200">Search Library</p>
+              <p className="text-xs text-zinc-500">Find by description</p>
+            </div>
+            <ArrowRight className="w-4 h-4 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+          </button>
+          <button
+            onClick={() => navigate('/studio')}
+            className="flex items-center gap-3 bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-4 hover:border-zinc-600 transition-colors text-left group"
+          >
+            <div className="p-2 rounded-lg bg-violet-500/20">
+              <Clapperboard className="w-4 h-4 text-violet-300" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-zinc-200">Create Video</p>
+              <p className="text-xs text-zinc-500">AI-directed editing</p>
+            </div>
+            <ArrowRight className="w-4 h-4 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+          </button>
+        </div>
+      )}
+
+      {recentMedia && recentMedia.items.length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-zinc-300">Recent Media</h2>
+            <button
+              onClick={() => navigate('/library')}
+              className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+            >
+              View all
+            </button>
+          </div>
+          <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-2">
+            {recentMedia.items.map((item: any) => (
+              <button
+                key={item.uuid}
+                onClick={() => navigate('/library')}
+                className="group aspect-square bg-zinc-800 rounded-lg overflow-hidden border border-zinc-700/40 hover:border-violet-500/50 transition-all"
+              >
+                <img
+                  src={thumbnailUrl(item.uuid)}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                  onError={(e: any) => { e.target.style.display = 'none' }}
+                />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Date range & quality */}
@@ -168,14 +290,47 @@ export default function Dashboard() {
             </div>
           </div>
         )}
+
+        {/* Recent videos */}
+        {recentVideos.length > 0 && (
+          <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-5">
+            <h2 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
+              <Play className="w-4 h-4" /> Recent Videos
+            </h2>
+            <div className="space-y-2">
+              {recentVideos.map((v) => (
+                <button
+                  key={v.filename}
+                  onClick={() => navigate('/videos')}
+                  className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-700/30 transition-colors text-left"
+                >
+                  <div className="p-1.5 rounded bg-zinc-700/50">
+                    <Film className="w-3.5 h-3.5 text-zinc-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-zinc-300 truncate">{v.filename.replace('.mp4', '').replace(/_/g, ' ')}</p>
+                    <p className="text-[10px] text-zinc-500">{v.size_mb} MB</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {s.total === 0 && (
-        <div className="mt-8 bg-violet-500/10 border border-violet-500/30 rounded-xl p-6 text-center">
-          <p className="text-violet-200 font-medium mb-2">Your library is empty</p>
-          <p className="text-sm text-violet-300/70">
-            Go to the Library tab and click "Add Media" to upload photos and videos.
+        <div className="mt-8 bg-violet-500/10 border border-violet-500/30 rounded-xl p-8 text-center">
+          <Clapperboard className="w-10 h-10 text-violet-400 mx-auto mb-4 opacity-60" />
+          <p className="text-violet-200 font-semibold text-lg mb-2">Welcome to Video Composer</p>
+          <p className="text-sm text-violet-300/70 mb-6 max-w-md mx-auto">
+            Upload your photos and videos, then let AI create beautiful montages from your library.
           </p>
+          <button
+            onClick={() => navigate('/library')}
+            className="inline-flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
+          >
+            <Upload className="w-4 h-4" /> Upload Your First Media
+          </button>
         </div>
       )}
     </div>

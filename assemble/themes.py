@@ -24,6 +24,7 @@ class Theme:
     title_position: str  # "center", "bottom_left"
     color_filter: Optional[Callable] = field(default=None, repr=False)
     ken_burns_enabled: bool = True
+    resolution_override: Optional[tuple[int, int]] = None
 
 
 def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -115,6 +116,27 @@ def _warm_color_filter(clip):
     return clip.image_transform(_warm_filter)
 
 
+def _cinematic_filter(frame: np.ndarray) -> np.ndarray:
+    """Slight desaturation + warm tint for a cinematic look."""
+    result = frame.astype(np.float32)
+    # Desaturate by 15%: blend each channel toward the luminance
+    gray = 0.2989 * result[:, :, 0] + 0.5870 * result[:, :, 1] + 0.1140 * result[:, :, 2]
+    factor = 0.85  # keep 85% of colour (15% desaturation)
+    result[:, :, 0] = result[:, :, 0] * factor + gray * (1 - factor)
+    result[:, :, 1] = result[:, :, 1] * factor + gray * (1 - factor)
+    result[:, :, 2] = result[:, :, 2] * factor + gray * (1 - factor)
+    # Warm tint: slight red/green boost, blue reduction
+    result[:, :, 0] = np.minimum(result[:, :, 0] * 1.06, 255)  # red
+    result[:, :, 1] = np.minimum(result[:, :, 1] * 1.02, 255)  # green
+    result[:, :, 2] = result[:, :, 2] * 0.94                    # blue
+    return result.astype(np.uint8)
+
+
+def _cinematic_color_filter(clip):
+    """Apply cinematic desaturation + warm tint to a moviepy clip."""
+    return clip.image_transform(_cinematic_filter)
+
+
 # ---------------------------------------------------------------------------
 # Preset themes
 # ---------------------------------------------------------------------------
@@ -155,10 +177,50 @@ BOLD_MODERN = Theme(
     ken_burns_enabled=False,
 )
 
+CINEMATIC = Theme(
+    name="cinematic",
+    font="Georgia",
+    font_size=56,
+    font_color="#E8E0D0",
+    bg_color="#0A0A0A",
+    transition_type="crossfade",
+    title_position="center",
+    color_filter=_cinematic_color_filter,
+    ken_burns_enabled=True,
+)
+
+DOCUMENTARY = Theme(
+    name="documentary",
+    font="Helvetica",
+    font_size=40,
+    font_color="#FFFFFF",
+    bg_color="#1A1A2E",
+    transition_type="fade_black",
+    title_position="center",
+    color_filter=None,
+    ken_burns_enabled=True,
+)
+
+SOCIAL_VERTICAL = Theme(
+    name="social_vertical",
+    font="Helvetica-Bold",
+    font_size=64,
+    font_color="#FFFFFF",
+    bg_color="#000000",
+    transition_type="crossfade",
+    title_position="center",
+    color_filter=None,
+    ken_burns_enabled=True,
+    resolution_override=(1080, 1920),
+)
+
 _THEMES: dict[str, Theme] = {
     "minimal": MINIMAL,
     "warm_nostalgic": WARM_NOSTALGIC,
     "bold_modern": BOLD_MODERN,
+    "cinematic": CINEMATIC,
+    "documentary": DOCUMENTARY,
+    "social_vertical": SOCIAL_VERTICAL,
 }
 
 
@@ -177,10 +239,14 @@ def apply_ken_burns(
     fps: int,
     resolution: tuple[int, int],
 ) -> VideoClip:
-    """Create a video clip from a still image with a slow Ken Burns zoom.
+    """Create a video clip from a still image with a Ken Burns zoom + pan.
 
-    Randomly chooses between zoom-in and zoom-out. The zoom range is gentle
-    (1.0x to 1.15x) to keep the effect subtle and cinematic.
+    Randomly chooses a motion style:
+    - Zoom in (center focus)
+    - Zoom out (center focus)
+    - Zoom in with pan (drift from one region to another)
+
+    The zoom range is gentle (1.0x to 1.15x) to keep the effect subtle.
 
     Args:
         image_path: Path to the source image file.
@@ -194,34 +260,59 @@ def apply_ken_burns(
     target_w, target_h = resolution
 
     img = Image.open(image_path).convert("RGB")
-    # Work at a higher resolution to allow cropping during zoom
-    scale_factor = 1.3
+    # Work at a higher resolution to allow cropping during zoom + pan
+    scale_factor = 1.4
     work_w = int(target_w * scale_factor)
     work_h = int(target_h * scale_factor)
     img = img.resize((work_w, work_h), Image.LANCZOS)
     img_array = np.array(img)
 
-    zoom_in = random.choice([True, False])
+    # Choose motion style
+    style = random.choice(["zoom_in", "zoom_out", "pan_zoom"])
     zoom_start = 1.0
     zoom_end = 1.15
 
+    # Pan parameters — slight drift from start to end offset
+    max_pan = int(work_w * 0.08)  # max pan distance as fraction of image
+    if style == "pan_zoom":
+        pan_start_x = random.randint(-max_pan, max_pan)
+        pan_start_y = random.randint(-max_pan // 2, max_pan // 2)
+        pan_end_x = random.randint(-max_pan, max_pan)
+        pan_end_y = random.randint(-max_pan // 2, max_pan // 2)
+    else:
+        pan_start_x = pan_start_y = pan_end_x = pan_end_y = 0
+
     def make_frame(t: float) -> np.ndarray:
         progress = t / duration if duration > 0 else 0.0
-        if zoom_in:
-            zoom = zoom_start + (zoom_end - zoom_start) * progress
-        else:
+        # Ease-in-out for smoother motion
+        progress = 0.5 - 0.5 * np.cos(np.pi * progress)
+
+        if style == "zoom_out":
             zoom = zoom_end - (zoom_end - zoom_start) * progress
+        else:  # zoom_in or pan_zoom
+            zoom = zoom_start + (zoom_end - zoom_start) * progress
 
         # Compute the crop box for this zoom level
         crop_w = int(target_w / zoom)
         crop_h = int(target_h / zoom)
 
-        # Center crop on the working image
-        cx, cy = work_w // 2, work_h // 2
+        # Pan interpolation
+        pan_x = int(pan_start_x + (pan_end_x - pan_start_x) * progress)
+        pan_y = int(pan_start_y + (pan_end_y - pan_start_y) * progress)
+
+        # Center crop on the working image with pan offset
+        cx = work_w // 2 + pan_x
+        cy = work_h // 2 + pan_y
         x1 = max(cx - crop_w // 2, 0)
         y1 = max(cy - crop_h // 2, 0)
         x2 = min(x1 + crop_w, work_w)
         y2 = min(y1 + crop_h, work_h)
+
+        # Ensure we don't crop outside bounds
+        if x2 - x1 < crop_w:
+            x1 = max(0, x2 - crop_w)
+        if y2 - y1 < crop_h:
+            y1 = max(0, y2 - crop_h)
 
         cropped = img_array[y1:y2, x1:x2]
 

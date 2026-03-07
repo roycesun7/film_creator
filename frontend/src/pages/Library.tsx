@@ -6,7 +6,7 @@ import { fetchMedia, uploadFiles, deleteMediaItem, startIndex, thumbnailUrl, vid
 import {
   Image, Film, ChevronLeft, ChevronRight,
   Loader2, Upload, X, Clock, Tag, Users, Plus,
-  Trash2, CheckSquare, Square, MousePointerClick, XCircle, Clapperboard, Zap, MessageSquare, AlertCircle, Sparkles
+  Trash2, CheckSquare, Square, MousePointerClick, Clapperboard, Zap, MessageSquare, AlertCircle, Sparkles
 } from 'lucide-react'
 
 function MediaCard({
@@ -359,6 +359,14 @@ export default function Library() {
     setSelectedUuids(new Set())
   }
 
+  function handleSelectAll() {
+    if (selectedUuids.size === items.length) {
+      setSelectedUuids(new Set())
+    } else {
+      setSelectedUuids(new Set(items.map((i) => i.uuid)))
+    }
+  }
+
   function handleCreateVideo() {
     const params = new URLSearchParams()
     params.set('media', Array.from(selectedUuids).join(','))
@@ -477,8 +485,10 @@ export default function Library() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-6 h-6 animate-spin text-zinc-500" />
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <div key={i} className="aspect-square bg-zinc-800 rounded-lg animate-pulse" />
+          ))}
         </div>
       ) : mediaError ? (
         <div className="text-center py-12">
@@ -544,38 +554,43 @@ export default function Library() {
         </>
       )}
 
-      {selectMode && selectedUuids.size > 0 && (
+      {selectMode && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-zinc-900 border border-zinc-700 rounded-xl px-5 py-3 shadow-2xl shadow-black/50">
           <span className="text-sm text-zinc-400">
-            {selectedUuids.size} selected
+            {selectedUuids.size} of {items.length} selected
           </span>
           <div className="w-px h-6 bg-zinc-700" />
           <button
-            onClick={() => setSelectedUuids(new Set())}
+            onClick={handleSelectAll}
             className="flex items-center gap-1.5 text-sm text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded-md hover:bg-zinc-800 transition-colors"
           >
-            <XCircle className="w-3.5 h-3.5" />
-            Deselect All
+            <CheckSquare className="w-3.5 h-3.5" />
+            {selectedUuids.size === items.length ? 'Deselect All' : 'Select All'}
           </button>
-          <button
-            onClick={() => bulkDeleteMut.mutate(Array.from(selectedUuids))}
-            disabled={bulkDeleteMut.isPending}
-            className="flex items-center gap-1.5 text-sm font-medium bg-red-600 hover:bg-red-500 disabled:bg-red-800 text-white px-3 py-1.5 rounded-lg transition-colors"
-          >
-            {bulkDeleteMut.isPending ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Trash2 className="w-3.5 h-3.5" />
-            )}
-            Delete Selected ({selectedUuids.size})
-          </button>
-          <button
-            onClick={handleCreateVideo}
-            className="flex items-center gap-1.5 text-sm font-medium bg-violet-600 hover:bg-violet-500 text-white px-3 py-1.5 rounded-lg transition-colors"
-          >
-            <Clapperboard className="w-3.5 h-3.5" />
-            Create Video
-          </button>
+          {selectedUuids.size > 0 && (
+            <>
+              <div className="w-px h-6 bg-zinc-700" />
+              <button
+                onClick={() => bulkDeleteMut.mutate(Array.from(selectedUuids))}
+                disabled={bulkDeleteMut.isPending}
+                className="flex items-center gap-1.5 text-sm font-medium bg-red-600 hover:bg-red-500 disabled:bg-red-800 text-white px-3 py-1.5 rounded-lg transition-colors"
+              >
+                {bulkDeleteMut.isPending ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                Delete ({selectedUuids.size})
+              </button>
+              <button
+                onClick={handleCreateVideo}
+                className="flex items-center gap-1.5 text-sm font-medium bg-violet-600 hover:bg-violet-500 text-white px-3 py-1.5 rounded-lg transition-colors"
+              >
+                <Clapperboard className="w-3.5 h-3.5" />
+                Create Video
+              </button>
+            </>
+          )}
         </div>
       )}
 

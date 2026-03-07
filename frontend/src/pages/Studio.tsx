@@ -532,13 +532,16 @@ export default function Studio() {
             <div className="flex items-center gap-4 mt-3 text-xs text-zinc-500">
               <span className="flex items-center gap-1">
                 <Clock className="w-3 h-3" />
-                {totalDuration.toFixed(0)}s
-                {edlModified && (
-                  <span className="text-amber-400 ml-1">(modified)</span>
+                {Math.floor(totalDuration / 60)}:{String(Math.floor(totalDuration % 60)).padStart(2, '0')}
+                {edlModified && totalDuration !== edlMeta.estimated_duration && (
+                  <span className="text-amber-400 ml-1">
+                    (was {Math.floor(edlMeta.estimated_duration / 60)}:{String(Math.floor(edlMeta.estimated_duration % 60)).padStart(2, '0')})
+                  </span>
                 )}
               </span>
               <span className="flex items-center gap-1"><Film className="w-3 h-3" /> {shots.length} shots</span>
               <span className="flex items-center gap-1"><Music className="w-3 h-3" /> {musicFilename || edlMeta.music_mood}</span>
+              <span className="text-zinc-600">Render: ~{Math.max(1, Math.ceil(totalDuration / 10))} min</span>
             </div>
             {edlModified && (
               <p className="text-[11px] text-amber-400/70 mt-2">

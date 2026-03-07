@@ -326,8 +326,16 @@ function ResultCard({ item, isSelected, onToggleSelect, onDetail }: {
             </span>
           )}
         </div>
+        {item.relevance_score != null && (
+          <div className="w-full h-1 bg-zinc-700 rounded-full overflow-hidden mt-1.5">
+            <div
+              className="h-full bg-violet-500/60 rounded-full"
+              style={{ width: `${Math.min(item.relevance_score * 100, 100)}%` }}
+            />
+          </div>
+        )}
         {summary && (
-          <p className="text-[11px] text-zinc-400 line-clamp-2 mt-1">{summary}</p>
+          <p className="text-[11px] text-zinc-400 line-clamp-2 mt-1.5">{summary}</p>
         )}
         <p className="text-[10px] text-zinc-600 mt-1">{item.date?.slice(0, 10)}</p>
       </div>

@@ -121,8 +121,27 @@ export default function Dashboard() {
         <StatCard icon={BarChart3} label="Total Indexed" value={s.total} color="bg-violet-500/20 text-violet-300" />
         <StatCard icon={Image} label="Photos" value={s.photos} color="bg-blue-500/20 text-blue-300" />
         <StatCard icon={Film} label="Videos" value={s.videos} color="bg-emerald-500/20 text-emerald-300" />
-        <StatCard icon={Cpu} label="With Embeddings" value={s.with_embeddings} sub={s.with_embeddings < s.total ? "Embedding in progress..." : undefined} color="bg-orange-500/20 text-orange-300" />
+        <StatCard icon={Cpu} label="With Embeddings" value={s.with_embeddings} sub={s.total > 0 ? `${Math.round((s.with_embeddings / s.total) * 100)}% coverage` : undefined} color="bg-orange-500/20 text-orange-300" />
       </div>
+
+      {/* Embedding progress bar */}
+      {s.total > 0 && s.with_embeddings < s.total && (
+        <div className="mb-8 bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-zinc-300">Embedding Progress</span>
+            <span className="text-sm text-zinc-400">{s.with_embeddings} / {s.total}</span>
+          </div>
+          <div className="w-full h-2 bg-zinc-700 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-violet-600 to-violet-400 rounded-full transition-all duration-700"
+              style={{ width: `${Math.round((s.with_embeddings / s.total) * 100)}%` }}
+            />
+          </div>
+          <p className="text-xs text-zinc-500 mt-2">
+            {s.total - s.with_embeddings} items still need embeddings for semantic search
+          </p>
+        </div>
+      )}
 
       {/* Quick actions */}
       {s.total > 0 && (

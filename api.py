@@ -230,8 +230,9 @@ def get_media(
     limit: int = Query(24, ge=1, le=200),
     offset: int = Query(0, ge=0),
     sort: str = Query("date", pattern="^(date|quality|recent)$"),
+    media_type: str | None = Query(None, pattern="^(photo|video)$"),
 ):
-    items = list_media(limit=limit, offset=offset, sort_by=sort)
+    items = list_media(limit=limit, offset=offset, sort_by=sort, media_type=media_type)
     total = count_media()
     # Strip embeddings from response (they're large binary blobs)
     for item in items:

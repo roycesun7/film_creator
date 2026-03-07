@@ -2,11 +2,11 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useToast } from '../components/Toast'
-import { fetchMedia, uploadFiles, deleteMediaItem, thumbnailUrl, videoUrl, type MediaItem } from '../api'
+import { fetchMedia, uploadFiles, deleteMediaItem, startIndex, thumbnailUrl, videoUrl, type MediaItem } from '../api'
 import {
   Image, Film, ChevronLeft, ChevronRight,
   Loader2, Upload, X, Clock, Tag, Users, Plus,
-  Trash2, CheckSquare, Square, MousePointerClick, XCircle, Clapperboard, Zap, MessageSquare, AlertCircle
+  Trash2, CheckSquare, Square, MousePointerClick, XCircle, Clapperboard, Zap, MessageSquare, AlertCircle, Sparkles
 } from 'lucide-react'
 
 function MediaCard({
@@ -258,6 +258,7 @@ export default function Library() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const limit = 24
 
+  const [mediaTypeFilter, setMediaTypeFilter] = useState<string>('')
   const [autoDescribe, setAutoDescribe] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
   const [selectedUuids, setSelectedUuids] = useState<Set<string>>(new Set())
@@ -272,8 +273,8 @@ export default function Library() {
   }, [selected])
 
   const { data, isLoading, error: mediaError, refetch: refetchMedia } = useQuery({
-    queryKey: ['media', offset, sort],
-    queryFn: () => fetchMedia({ limit, offset, sort }),
+    queryKey: ['media', offset, sort, mediaTypeFilter],
+    queryFn: () => fetchMedia({ limit, offset, sort, media_type: mediaTypeFilter || undefined }),
   })
 
   const uploadMut = useMutation({
@@ -309,6 +310,14 @@ export default function Library() {
       queryClient.invalidateQueries({ queryKey: ['stats'] })
     },
     onError: (err) => toast(err instanceof Error ? err.message : 'Bulk delete failed', 'error'),
+  })
+
+  const indexMut = useMutation({
+    mutationFn: () => startIndex({ describe: true }),
+    onSuccess: () => {
+      toast('Embedding started — this runs in the background', 'success')
+    },
+    onError: (err) => toast(err instanceof Error ? err.message : 'Failed to start embedding', 'error'),
   })
 
   const handleFiles = useCallback((files: FileList | File[]) => {
@@ -393,6 +402,21 @@ export default function Library() {
           <p className="text-sm text-zinc-400 mt-1">{total} items indexed</p>
         </div>
         <div className="flex items-center gap-3">
+          <div className="flex items-center bg-zinc-800 border border-zinc-700 rounded-lg overflow-hidden">
+            {([['', 'All'], ['photo', 'Photos'], ['video', 'Videos']] as const).map(([value, label]) => (
+              <button
+                key={value}
+                onClick={() => { setMediaTypeFilter(value); setOffset(0) }}
+                className={`text-sm font-medium px-3 py-1.5 transition-colors ${
+                  mediaTypeFilter === value
+                    ? 'bg-violet-600 text-white'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <select
             value={sort}
             onChange={(e) => { setSort(e.target.value); setOffset(0) }}
@@ -424,6 +448,19 @@ export default function Library() {
           >
             <MessageSquare className="w-3.5 h-3.5" />
             AI Describe
+          </button>
+          <button
+            onClick={() => indexMut.mutate()}
+            disabled={indexMut.isPending}
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg bg-zinc-800 text-zinc-400 border border-zinc-700 hover:text-zinc-300 hover:bg-zinc-700 disabled:opacity-50 transition-colors"
+            title="Run AI embedding on all unprocessed media"
+          >
+            {indexMut.isPending ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="w-3.5 h-3.5" />
+            )}
+            Embed All
           </button>
           <button
             onClick={() => fileInputRef.current?.click()}

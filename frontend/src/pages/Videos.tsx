@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchVideos, deleteVideo, videoThumbnailUrl } from '../api'
 import { Film, Play, Clock, HardDrive, Loader2, Download, Trash2, X, Clapperboard } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useToast } from '../components/Toast'
 
 function formatTitle(filename: string): string {
@@ -29,6 +29,58 @@ export default function Videos() {
   const [playing, setPlaying] = useState<string | null>(null)
   const [playingFilename, setPlayingFilename] = useState<string | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+
+  // Keyboard controls for video player
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (!playing) return
+    const target = e.target as HTMLElement
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return
+
+    const vid = videoRef.current
+    if (!vid) return
+
+    switch (e.key) {
+      case ' ':
+      case 'k':
+        e.preventDefault()
+        vid.paused ? vid.play() : vid.pause()
+        break
+      case 'ArrowLeft':
+        e.preventDefault()
+        vid.currentTime = Math.max(0, vid.currentTime - 5)
+        break
+      case 'ArrowRight':
+        e.preventDefault()
+        vid.currentTime = Math.min(vid.duration, vid.currentTime + 5)
+        break
+      case 'j':
+        e.preventDefault()
+        vid.currentTime = Math.max(0, vid.currentTime - 10)
+        break
+      case 'l':
+        e.preventDefault()
+        vid.currentTime = Math.min(vid.duration, vid.currentTime + 10)
+        break
+      case 'f':
+        e.preventDefault()
+        document.fullscreenElement ? document.exitFullscreen() : vid.requestFullscreen()
+        break
+      case 'm':
+        e.preventDefault()
+        vid.muted = !vid.muted
+        break
+      case 'Escape':
+        setPlaying(null)
+        setPlayingFilename(null)
+        break
+    }
+  }, [playing])
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleKeyDown])
 
   const deleteMut = useMutation({
     mutationFn: deleteVideo,
@@ -102,12 +154,21 @@ export default function Videos() {
             </button>
           </div>
           <video
+            ref={videoRef}
             key={playing}
             src={playing}
             controls
             autoPlay
             className="w-full rounded-xl max-h-[500px] bg-black border border-zinc-700"
           />
+          <div className="flex items-center gap-4 mt-2 text-[10px] text-zinc-600">
+            <span><kbd className="bg-zinc-800 px-1 rounded">Space</kbd> Play/Pause</span>
+            <span><kbd className="bg-zinc-800 px-1 rounded">&larr;</kbd><kbd className="bg-zinc-800 px-1 rounded">&rarr;</kbd> &plusmn;5s</span>
+            <span><kbd className="bg-zinc-800 px-1 rounded">J</kbd>/<kbd className="bg-zinc-800 px-1 rounded">L</kbd> &plusmn;10s</span>
+            <span><kbd className="bg-zinc-800 px-1 rounded">F</kbd> Fullscreen</span>
+            <span><kbd className="bg-zinc-800 px-1 rounded">M</kbd> Mute</span>
+            <span><kbd className="bg-zinc-800 px-1 rounded">Esc</kbd> Close</span>
+          </div>
         </div>
       )}
 

@@ -279,7 +279,8 @@ def get_all_embeddings() -> tuple[list[str], np.ndarray]:
     return uuids, matrix
 
 
-def list_media(limit: int = 20, offset: int = 0, sort_by: str = "date") -> list[dict]:
+def list_media(limit: int = 20, offset: int = 0, sort_by: str = "date",
+               media_type: str | None = None) -> list[dict]:
     """List indexed media with pagination and sorting."""
     client = _get_client()
 
@@ -290,13 +291,14 @@ def list_media(limit: int = 20, offset: int = 0, sort_by: str = "date") -> list[
     }
     col, desc = sort_map.get(sort_by, ("date", True))
 
-    resp = (
+    query = (
         client.table("media")
         .select("*")
         .order(col, desc=desc, nullsfirst=False)
-        .range(offset, offset + limit - 1)
-        .execute()
     )
+    if media_type:
+        query = query.eq("media_type", media_type)
+    resp = query.range(offset, offset + limit - 1).execute()
     return [_row_to_dict(row) for row in resp.data]
 
 

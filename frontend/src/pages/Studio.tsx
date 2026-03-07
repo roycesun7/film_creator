@@ -13,12 +13,12 @@ import {
 import { useToast } from '../components/Toast'
 
 const THEMES = [
-  { value: 'minimal', label: 'Minimal', desc: 'Clean white text, crossfade, Ken Burns' },
-  { value: 'warm_nostalgic', label: 'Warm Nostalgic', desc: 'Warm tones, fade-through-black' },
-  { value: 'bold_modern', label: 'Bold Modern', desc: 'Large bold text, high contrast' },
-  { value: 'cinematic', label: 'Cinematic', desc: 'Desaturated warm tones, cinematic feel' },
-  { value: 'documentary', label: 'Documentary', desc: 'Clean journalistic style, dark navy' },
-  { value: 'social_vertical', label: 'Social (9:16)', desc: 'Vertical format for mobile/social' },
+  { value: 'minimal', label: 'Minimal', desc: 'Clean white text, crossfade, Ken Burns', transition: 'Crossfade', res: '1920x1080' },
+  { value: 'warm_nostalgic', label: 'Warm Nostalgic', desc: 'Warm tones, fade-through-black', transition: 'Fade black', res: '1920x1080' },
+  { value: 'bold_modern', label: 'Bold Modern', desc: 'Large bold text, high contrast', transition: 'Slide', res: '1920x1080' },
+  { value: 'cinematic', label: 'Cinematic', desc: 'Desaturated warm tones, cinematic feel', transition: 'Crossfade', res: '1920x1080' },
+  { value: 'documentary', label: 'Documentary', desc: 'Clean journalistic style, dark navy', transition: 'Fade black', res: '1920x1080' },
+  { value: 'social_vertical', label: 'Social (9:16)', desc: 'Vertical format for mobile/social', transition: 'Crossfade', res: '1080x1920' },
 ]
 
 const roleColors: Record<string, string> = {
@@ -382,9 +382,14 @@ export default function Studio() {
                 <option key={t.value} value={t.value}>{t.label}</option>
               ))}
             </select>
-            <p className="text-[10px] text-zinc-500 mt-1">
-              {THEMES.find((t) => t.value === theme)?.desc}
-            </p>
+            {(() => {
+              const t = THEMES.find((t) => t.value === theme)
+              return t ? (
+                <p className="text-[10px] text-zinc-500 mt-1">
+                  {t.desc} &middot; {t.transition} &middot; {t.res}
+                </p>
+              ) : null
+            })()}
           </div>
         </div>
 

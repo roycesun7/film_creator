@@ -239,10 +239,14 @@ def apply_ken_burns(
     fps: int,
     resolution: tuple[int, int],
 ) -> VideoClip:
-    """Create a video clip from a still image with a slow Ken Burns zoom.
+    """Create a video clip from a still image with a Ken Burns zoom + pan.
 
-    Randomly chooses between zoom-in and zoom-out. The zoom range is gentle
-    (1.0x to 1.15x) to keep the effect subtle and cinematic.
+    Randomly chooses a motion style:
+    - Zoom in (center focus)
+    - Zoom out (center focus)
+    - Zoom in with pan (drift from one region to another)
+
+    The zoom range is gentle (1.0x to 1.15x) to keep the effect subtle.
 
     Args:
         image_path: Path to the source image file.
@@ -256,34 +260,59 @@ def apply_ken_burns(
     target_w, target_h = resolution
 
     img = Image.open(image_path).convert("RGB")
-    # Work at a higher resolution to allow cropping during zoom
-    scale_factor = 1.3
+    # Work at a higher resolution to allow cropping during zoom + pan
+    scale_factor = 1.4
     work_w = int(target_w * scale_factor)
     work_h = int(target_h * scale_factor)
     img = img.resize((work_w, work_h), Image.LANCZOS)
     img_array = np.array(img)
 
-    zoom_in = random.choice([True, False])
+    # Choose motion style
+    style = random.choice(["zoom_in", "zoom_out", "pan_zoom"])
     zoom_start = 1.0
     zoom_end = 1.15
 
+    # Pan parameters — slight drift from start to end offset
+    max_pan = int(work_w * 0.08)  # max pan distance as fraction of image
+    if style == "pan_zoom":
+        pan_start_x = random.randint(-max_pan, max_pan)
+        pan_start_y = random.randint(-max_pan // 2, max_pan // 2)
+        pan_end_x = random.randint(-max_pan, max_pan)
+        pan_end_y = random.randint(-max_pan // 2, max_pan // 2)
+    else:
+        pan_start_x = pan_start_y = pan_end_x = pan_end_y = 0
+
     def make_frame(t: float) -> np.ndarray:
         progress = t / duration if duration > 0 else 0.0
-        if zoom_in:
-            zoom = zoom_start + (zoom_end - zoom_start) * progress
-        else:
+        # Ease-in-out for smoother motion
+        progress = 0.5 - 0.5 * np.cos(np.pi * progress)
+
+        if style == "zoom_out":
             zoom = zoom_end - (zoom_end - zoom_start) * progress
+        else:  # zoom_in or pan_zoom
+            zoom = zoom_start + (zoom_end - zoom_start) * progress
 
         # Compute the crop box for this zoom level
         crop_w = int(target_w / zoom)
         crop_h = int(target_h / zoom)
 
-        # Center crop on the working image
-        cx, cy = work_w // 2, work_h // 2
+        # Pan interpolation
+        pan_x = int(pan_start_x + (pan_end_x - pan_start_x) * progress)
+        pan_y = int(pan_start_y + (pan_end_y - pan_start_y) * progress)
+
+        # Center crop on the working image with pan offset
+        cx = work_w // 2 + pan_x
+        cy = work_h // 2 + pan_y
         x1 = max(cx - crop_w // 2, 0)
         y1 = max(cy - crop_h // 2, 0)
         x2 = min(x1 + crop_w, work_w)
         y2 = min(y1 + crop_h, work_h)
+
+        # Ensure we don't crop outside bounds
+        if x2 - x1 < crop_w:
+            x1 = max(0, x2 - crop_w)
+        if y2 - y1 < crop_h:
+            y1 = max(0, y2 - crop_h)
 
         cropped = img_array[y1:y2, x1:x2]
 

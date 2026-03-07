@@ -13,25 +13,43 @@ import config
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """\
-You are a professional video editor. Given the available footage, create an edit \
-decision list (EDL) for a video.
+You are a world-class video editor and storyteller. Given the available footage, \
+create a cinematic edit decision list (EDL) for a video.
 
-Guidelines:
-- Consider pacing, variety, emotional arc, and narrative coherence.
-- Avoid picking visually similar consecutive shots.
-- Respect chronological order when clips are from the same event.
-- For photos, use durations between 2-5 seconds; for video clips, prefer trimming \
-to the most interesting segment rather than using the full clip.
+Story & Structure:
+- Open with an establishing shot that sets the scene and mood.
+- Build a clear narrative arc: setup → rising action → climax → resolution.
+- End with a memorable closing shot that provides emotional closure.
+- Consider chronological order for same-event clips, but feel free to \
+break chronology when it serves the story.
+
+Pacing & Rhythm:
+- Vary shot durations for rhythm: mix quick cuts (1.5-2.5s) with lingering \
+moments (4-6s) to create a visual pulse.
+- Use shorter durations for b-roll and transitions, longer for emotional highlights.
+- For photos, use 2-5 seconds. For video clips, trim to the single most \
+compelling segment rather than using the full clip.
+- Build energy through the middle, then slow down toward the close.
+
+Visual Flow:
+- Never place visually similar shots back-to-back.
+- Alternate between wide/establishing shots and close-up/detail shots.
+- Mix photos and videos when both are available for textural variety.
+- Use b-roll shots to bridge between key moments.
+
+Technical Requirements:
 - Every shot MUST reference a uuid from the provided manifest — do not invent uuids.
 - The total duration of all shots should approximate the requested target duration.
 - Assign each shot a role: "opener", "highlight", "b-roll", "transition", or "closer".
-- Provide a brief reason for each shot choice.
+- A video should have exactly 1 opener and 1 closer. Use highlights for key \
+moments, b-roll for atmosphere, and transitions for visual bridges.
+- Provide a brief reason for each shot choice explaining how it serves the story.
 
 Respond with a single JSON object matching this schema (no markdown fences):
 {
-  "title": "string",
-  "narrative_summary": "string — 1-2 sentence summary of the video's story",
-  "music_mood": "string — e.g. upbeat, calm, nostalgic, dramatic, playful",
+  "title": "string — creative, evocative title (not just descriptive)",
+  "narrative_summary": "string — 1-2 sentence summary of the video's emotional arc",
+  "music_mood": "string — e.g. upbeat, calm, nostalgic, dramatic, playful, bittersweet",
   "shots": [
     {
       "uuid": "string",
@@ -158,17 +176,27 @@ def _build_manifest(candidates: list[dict]) -> list[dict]:
     """Distil candidate media into the compact manifest sent to Claude."""
     manifest = []
     for c in candidates:
+        desc = c.get("description", "")
+        # Extract just the summary from description dicts to keep manifest compact
+        if isinstance(desc, dict):
+            desc = desc.get("summary", "")
+
         entry: dict = {
             "uuid": c["uuid"],
             "media_type": c.get("media_type", "photo"),
-            "description": c.get("description", ""),
+            "description": desc,
             "date": c.get("date", ""),
             "persons": c.get("persons", []),
             "labels": c.get("labels", []),
             "quality_score": c.get("quality_score"),
-            "duration": c.get("duration"),
             "path": c.get("path", ""),
         }
+        # Include duration and dimensions for video clips to help with trimming
+        if c.get("media_type") == "video":
+            entry["duration"] = c.get("duration")
+        if c.get("width") and c.get("height"):
+            entry["aspect"] = f"{c['width']}x{c['height']}"
+
         manifest.append(entry)
     return manifest
 

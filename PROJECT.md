@@ -53,6 +53,7 @@ Build an incredibly smooth video editing experience where you can upload clips, 
 - **anthropic SDK** — Claude Vision for descriptions, Claude as video director
 - **moviepy 2.x** — video assembly, Ken Burns, transitions, export
 - **SQLite** — media index + segment embeddings (at `media_index.db`)
+- **supabase** — planned migration target (Postgres + pgvector + file storage)
 - **osxphotos** — optional Apple Photos library import
 
 ## Project Structure
@@ -87,11 +88,23 @@ video-composer/
 │   ├── package.json
 │   └── vite.config.ts            # Proxy /api → FastAPI
 ├── scripts/
-│   └── demo_search.py            # Shows full search pipeline input/output
+│   ├── demo_search.py            # Shows full search pipeline input/output
+│   ├── validate_index.py         # Runtime validation of index pipeline
+│   ├── validate_curation.py      # Runtime validation of curation layer (real CLIP + SQLite)
+│   └── validate_assembly.py      # Runtime validation of assembly pipeline (real renders)
 ├── uploads/                      # Uploaded media files (gitignored)
 ├── output/                       # Generated videos (gitignored)
 ├── .thumbnails/                  # Cached thumbnails (gitignored)
-├── tests/                        # 162 pytest tests
+├── tests/                        # 163 pytest tests (8 test files)
+│   ├── conftest.py               # Shared fixtures (temp DB, media items)
+│   ├── test_index.py             # Indexing pipeline tests (33 tests)
+│   ├── test_assemble.py          # Assembly/render tests (40 tests)
+│   ├── test_curate.py            # Search & director tests (25 tests)
+│   ├── test_edge_cases.py        # Edge case coverage (30 tests)
+│   ├── test_management.py        # Media management tests (16 tests)
+│   ├── test_keyframes.py         # Keyframe embedding tests (7 tests)
+│   ├── test_integration.py       # End-to-end pipeline tests (5 tests)
+│   └── test_cli.py               # CLI command tests (6 tests)
 ├── .env                          # API keys (gitignored)
 ├── requirements.txt
 ├── pytest.ini
@@ -282,10 +295,15 @@ python main.py delete --all --yes
 ## Testing
 
 ```bash
-make test              # 162 tests, all passing
+make test              # 163 tests, all passing
 make test-fast         # skip slow embedding tests
 make test-integration  # end-to-end pipeline tests
 make lint              # compile-check all source files
+
+# Runtime validation scripts (use real embeddings + SQLite, no mocks)
+python scripts/validate_index.py      # index pipeline round-trip
+python scripts/validate_curation.py   # search + CLI with real CLIP embeddings
+python scripts/validate_assembly.py   # render real videos, verify outputs
 ```
 
 ## Key Design Decisions
@@ -308,7 +326,9 @@ make lint              # compile-check all source files
 
 ## Next Steps
 
-- **Supabase migration** — replace SQLite with Supabase (Postgres + pgvector) for persistent storage, vector search at scale, and file storage via Supabase Storage
+- **Supabase migration** — replace SQLite with Supabase (Postgres + pgvector) for persistent storage, vector search at scale, and file storage via Supabase Storage (`supabase` SDK already in requirements)
+- **Mobile testing** — no automated mobile/responsive tests yet; responsive design is CSS-only via Tailwind breakpoints
+- **Frontend unit tests** — no React component tests (no Jest/Vitest/Playwright); only backend pytest coverage
 - **Beat-synced editing** — music is overlaid but cuts aren't synced to beats (needs librosa)
 - **More themes** — user-defined or AI-suggested themes
 - **Subtitle/caption support** — text overlays on individual clips

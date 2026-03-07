@@ -11,7 +11,7 @@ import logging
 import tempfile
 import urllib.request
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 from urllib.parse import urlparse
 
 import numpy as np
@@ -375,6 +375,7 @@ def build_video(
     theme_name: str = "minimal",
     music_path: str | None = None,
     output_path: str | None = None,
+    progress_callback: "Callable[[int, str], None] | None" = None,
 ) -> str:
     """Assemble a final video from an EditDecisionList.
 
@@ -384,6 +385,8 @@ def build_video(
         music_path: Optional path to a background music file.
         output_path: Where to write the final MP4. Defaults to
             ``config.OUTPUT_DIR / "{edl.title}.mp4"``.
+        progress_callback: Optional function called with (percent, message)
+            during assembly for progress reporting.
 
     Returns:
         The absolute path to the rendered video file as a string.
@@ -397,14 +400,24 @@ def build_video(
     _print_progress(f"Resolution: {resolution[0]}x{resolution[1]} @ {fps}fps")
     _print_progress(f"Shots to process: {len(edl.shots)}")
 
+    def _report(pct: int, msg: str) -> None:
+        _print_progress(msg)
+        if progress_callback:
+            progress_callback(pct, msg)
+
     # --- Build individual clips -------------------------------------------
 
     shot_clips: list = []
+    total_shots = len(edl.shots)
     for i, shot in enumerate(edl.shots):
-        _print_progress(
-            f"Processing shot {i + 1}/{len(edl.shots)}: "
+        shot_msg = (
+            f"Processing shot {i + 1}/{total_shots}: "
             f"{shot.media_type} — {shot.role} — {Path(shot.path).name}"
         )
+        # Map shot progress to 10-70% range
+        shot_pct = 10 + int((i / max(total_shots, 1)) * 60)
+        _report(shot_pct, shot_msg)
+
         if shot.media_type == "photo":
             clip = _prepare_photo_clip(shot, theme, resolution, fps)
         elif shot.media_type == "video":
@@ -423,26 +436,26 @@ def build_video(
     if not shot_clips:
         raise RuntimeError("No valid shots could be loaded — cannot build video.")
 
-    _print_progress(f"Loaded {len(shot_clips)} clips successfully")
+    _report(70, f"Loaded {len(shot_clips)} clips successfully")
 
     # --- Title card -------------------------------------------------------
 
     title_dur = 3.0
-    _print_progress("Creating title card...")
+    _report(72, "Creating title card...")
     title_card = _create_title_card(edl.title, theme, title_dur, resolution, fps)
     title_card = apply_color_filter(title_card, theme)
 
     # --- Closing card -----------------------------------------------------
 
     closing_dur = 2.0
-    _print_progress("Creating closing card...")
+    _report(75, "Creating closing card...")
     closing_card = _create_closing_card(theme, closing_dur, resolution, fps, title=edl.title)
 
     all_clips = [title_card] + shot_clips + [closing_card]
 
     # --- Transitions ------------------------------------------------------
 
-    _print_progress(f"Applying transitions ({theme.transition_type})...")
+    _report(78, f"Applying transitions ({theme.transition_type})...")
 
     if theme.transition_type == "fade_black":
         # For fade-through-black, apply fades and concatenate sequentially
@@ -458,7 +471,7 @@ def build_video(
     # --- Music ------------------------------------------------------------
 
     if music_path is not None:
-        _print_progress("Adding background music...")
+        _report(82, "Adding background music...")
         music = _prepare_music(music_path, final_video.duration)
         if music is not None:
             if final_video.audio is not None:
@@ -478,7 +491,7 @@ def build_video(
         ).strip()
         output_path = str(config.OUTPUT_DIR / f"{safe_title}.mp4")
 
-    _print_progress(f"Rendering to {output_path}...")
+    _report(85, f"Encoding video to {Path(output_path).name}...")
     try:
         final_video.write_videofile(
             output_path,

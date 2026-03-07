@@ -1,4 +1,5 @@
-import { Routes, Route, NavLink } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
 import { Film, LayoutDashboard, FolderOpen, Search, Clapperboard, Play } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Library from './pages/Library'
@@ -7,14 +8,33 @@ import Studio from './pages/Studio'
 import Videos from './pages/Videos'
 
 const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/library', icon: FolderOpen, label: 'Library' },
-  { to: '/search', icon: Search, label: 'Search' },
-  { to: '/studio', icon: Clapperboard, label: 'Studio' },
-  { to: '/videos', icon: Play, label: 'Videos' },
+  { to: '/', icon: LayoutDashboard, label: 'Dashboard', shortcut: '1' },
+  { to: '/library', icon: FolderOpen, label: 'Library', shortcut: '2' },
+  { to: '/search', icon: Search, label: 'Search', shortcut: '3' },
+  { to: '/studio', icon: Clapperboard, label: 'Studio', shortcut: '4' },
+  { to: '/videos', icon: Play, label: 'Videos', shortcut: '5' },
 ]
 
 export default function App() {
+  const navigate = useNavigate()
+
+  // Global keyboard shortcuts: Ctrl+1-5 for navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger when typing in inputs
+      const tag = (e.target as HTMLElement).tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+
+      if ((e.ctrlKey || e.metaKey) && e.key >= '1' && e.key <= '5') {
+        e.preventDefault()
+        const idx = parseInt(e.key) - 1
+        if (navItems[idx]) navigate(navItems[idx].to)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [navigate])
+
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar */}
@@ -24,7 +44,7 @@ export default function App() {
           <span className="text-base font-bold tracking-tight">Video Composer</span>
         </div>
         <div className="flex flex-col gap-0.5 p-3 flex-1">
-          {navItems.map(({ to, icon: Icon, label }) => (
+          {navItems.map(({ to, icon: Icon, label, shortcut }) => (
             <NavLink
               key={to}
               to={to}
@@ -38,7 +58,8 @@ export default function App() {
               }
             >
               <Icon className="w-4 h-4" />
-              {label}
+              <span className="flex-1">{label}</span>
+              <kbd className="text-[9px] text-zinc-600 font-mono">⌘{shortcut}</kbd>
             </NavLink>
           ))}
         </div>

@@ -806,10 +806,16 @@ def _run_generate_job(job_id: str, req: GenerateRequest):
 
         _update_job(job_id, progress=40, message=f"EDL ready: {len(edl.shots)} shots. Rendering...")
 
+        def _on_progress(pct: int, msg: str):
+            # Map builder's 10-85% to our 40-95% range
+            mapped = 40 + int((pct / 100) * 55)
+            _update_job(job_id, progress=min(mapped, 95), message=msg)
+
         output_path = build_video(
             edl=edl,
             theme_name=req.theme,
             music_path=req.music,
+            progress_callback=_on_progress,
         )
 
         filename = Path(output_path).name
@@ -891,10 +897,15 @@ def _run_custom_generate_job(job_id: str, req: CustomGenerateRequest):
 
         _update_job(job_id, progress=40, message=f"Rendering {len(shots)} shots...")
 
+        def _on_progress(pct: int, msg: str):
+            mapped = 40 + int((pct / 100) * 55)
+            _update_job(job_id, progress=min(mapped, 95), message=msg)
+
         output_path = build_video(
             edl=edl,
             theme_name=req.theme,
             music_path=req.music_path,
+            progress_callback=_on_progress,
         )
 
         filename = Path(output_path).name

@@ -36,6 +36,8 @@ Visual Flow:
 - Alternate between wide/establishing shots and close-up/detail shots.
 - Mix photos and videos when both are available for textural variety.
 - Use b-roll shots to bridge between key moments.
+- Group thematically related shots together, then transition to the next theme.
+- Prefer higher quality_score items when available — they make for better visuals.
 
 Technical Requirements:
 - Every shot MUST reference a uuid from the provided manifest — do not invent uuids.
@@ -74,6 +76,10 @@ class Shot:
     end_time: float
     role: str
     reason: str
+
+    @property
+    def duration(self) -> float:
+        return max(0.0, self.end_time - self.start_time)
 
 
 @dataclass
@@ -251,6 +257,7 @@ def _validate(
     - Warn if estimated duration diverges significantly from target.
     """
     valid_uuids = {c["uuid"] for c in candidates}
+    candidate_lookup = {c["uuid"]: c for c in candidates}
 
     seen: set[str] = set()
     clean_shots: list[Shot] = []
@@ -264,6 +271,12 @@ def _validate(
         # Ensure non-negative, ordered times.
         shot.start_time = max(0.0, shot.start_time)
         shot.end_time = max(shot.start_time + 0.1, shot.end_time)
+        # Cap video end_time to actual source duration
+        cand = candidate_lookup.get(shot.uuid, {})
+        src_duration = cand.get("duration")
+        if shot.media_type == "video" and src_duration and src_duration > 0:
+            shot.end_time = min(shot.end_time, src_duration)
+            shot.start_time = min(shot.start_time, shot.end_time - 0.1)
         seen.add(shot.uuid)
         clean_shots.append(shot)
 

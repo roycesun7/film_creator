@@ -8,7 +8,7 @@ import {
 import {
   Sparkles, Loader2, Clock, Music, Film,
   Clapperboard, ChevronDown, ChevronUp, Eye, X, ArrowUp,
-  ArrowDown, Upload, Filter, Download, RotateCcw
+  ArrowDown, Upload, Filter, Download, RotateCcw, Link2
 } from 'lucide-react'
 import { useToast } from '../components/Toast'
 
@@ -631,6 +631,19 @@ export default function Studio() {
                   >
                     <Download className="w-3.5 h-3.5" /> Download
                   </a>
+                  <button
+                    onClick={() => {
+                      const url = window.location.origin + job.output_path
+                      navigator.clipboard.writeText(url).then(() => {
+                        toast('Video URL copied to clipboard', 'success')
+                      }).catch(() => {
+                        toast('Failed to copy URL', 'error')
+                      })
+                    }}
+                    className="flex items-center gap-1.5 text-xs font-medium bg-zinc-700/60 text-zinc-300 hover:bg-zinc-700 px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    <Link2 className="w-3.5 h-3.5" /> Copy Link
+                  </button>
                   <button
                     onClick={() => navigate('/videos')}
                     className="flex items-center gap-1.5 text-xs font-medium bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 px-3 py-1.5 rounded-lg transition-colors"

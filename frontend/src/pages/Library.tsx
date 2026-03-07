@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useToast } from '../components/Toast'
-import { fetchMedia, uploadFiles, deleteMediaItem, startIndex, thumbnailUrl, videoUrl, type MediaItem } from '../api'
+import { fetchMedia, fetchStats, uploadFiles, deleteMediaItem, startIndex, thumbnailUrl, videoUrl, type MediaItem } from '../api'
 import {
   Image, Film, ChevronLeft, ChevronRight,
   Loader2, Upload, X, Clock, Tag, Users, Plus,
@@ -285,6 +285,8 @@ export default function Library() {
   const limit = 24
 
   const [mediaTypeFilter, setMediaTypeFilter] = useState<string>('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [autoDescribe, setAutoDescribe] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
   const [selectedUuids, setSelectedUuids] = useState<Set<string>>(new Set())
@@ -298,9 +300,18 @@ export default function Library() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [selected])
 
+  const { data: statsData } = useQuery({
+    queryKey: ['stats'],
+    queryFn: fetchStats,
+    refetchInterval: 5000,
+  })
+
+  const embeddingInProgress = statsData ? statsData.with_embeddings < statsData.total : false
+
   const { data, isLoading, error: mediaError, refetch: refetchMedia } = useQuery({
-    queryKey: ['media', offset, sort, mediaTypeFilter],
-    queryFn: () => fetchMedia({ limit, offset, sort, media_type: mediaTypeFilter || undefined }),
+    queryKey: ['media', offset, sort, mediaTypeFilter, dateFrom, dateTo],
+    queryFn: () => fetchMedia({ limit, offset, sort, media_type: mediaTypeFilter || undefined, date_from: dateFrom || undefined, date_to: dateTo || undefined }),
+    refetchInterval: embeddingInProgress ? 5000 : false,
   })
 
   const uploadMut = useMutation({
@@ -434,6 +445,12 @@ export default function Library() {
         <div>
           <h1 className="text-2xl font-bold">Library</h1>
           <p className="text-sm text-zinc-400 mt-1">{total} items indexed</p>
+          {embeddingInProgress && statsData && (
+            <div className="flex items-center gap-2 text-xs text-amber-400/80 mt-1">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              <span>Embedding: {statsData.with_embeddings}/{statsData.total} processed — auto-refreshing</span>
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <div className="flex items-center bg-zinc-800 border border-zinc-700 rounded-lg overflow-hidden">
@@ -460,6 +477,32 @@ export default function Library() {
             <option value="recent">Recently Added</option>
             <option value="quality">Quality</option>
           </select>
+          <div className="flex items-center gap-1.5 bg-zinc-800 border border-zinc-700 rounded-lg overflow-hidden">
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => { setDateFrom(e.target.value); setOffset(0) }}
+              className="bg-transparent text-xs text-zinc-300 px-2 py-1.5 focus:outline-none [color-scheme:dark]"
+              title="From date"
+            />
+            <span className="text-zinc-600 text-xs">—</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => { setDateTo(e.target.value); setOffset(0) }}
+              className="bg-transparent text-xs text-zinc-300 px-2 py-1.5 focus:outline-none [color-scheme:dark]"
+              title="To date"
+            />
+            {(dateFrom || dateTo) && (
+              <button
+                onClick={() => { setDateFrom(''); setDateTo(''); setOffset(0) }}
+                className="text-zinc-500 hover:text-zinc-300 px-1.5 transition-colors"
+                title="Clear dates"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
           <button
             onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
             className={`flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg transition-colors ${

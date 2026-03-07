@@ -16,12 +16,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const fetchStats = () => request<Stats>('/api/stats')
 
 // Media
-export const fetchMedia = (params: { limit?: number; offset?: number; sort?: string; media_type?: string }) => {
+export const fetchMedia = (params: { limit?: number; offset?: number; sort?: string; media_type?: string; date_from?: string; date_to?: string }) => {
   const q = new URLSearchParams()
   if (params.limit) q.set('limit', String(params.limit))
   if (params.offset) q.set('offset', String(params.offset))
   if (params.sort) q.set('sort', params.sort)
   if (params.media_type) q.set('media_type', params.media_type)
+  if (params.date_from) q.set('date_from', params.date_from)
+  if (params.date_to) q.set('date_to', params.date_to)
   return request<MediaListResponse>(`/api/media?${q}`)
 }
 

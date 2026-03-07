@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { fetchStats, fetchJobs, fetchVideos, type Job } from '../api'
+import { fetchStats, fetchJobs, fetchVideos, fetchMedia, thumbnailUrl, type Job, type MediaItem } from '../api'
 import {
   Image, Film, Cpu, BarChart3, Users, FolderOpen,
   Loader2, AlertCircle, Upload, Search, Clapperboard, Play, ArrowRight
@@ -68,6 +68,10 @@ export default function Dashboard() {
   const { data: videosData } = useQuery({
     queryKey: ['videos'],
     queryFn: fetchVideos,
+  })
+  const { data: recentMedia } = useQuery({
+    queryKey: ['media', 0, 'recent', ''],
+    queryFn: () => fetchMedia({ limit: 8, offset: 0, sort: 'recent' }),
   })
 
   if (isLoading) {
@@ -185,6 +189,37 @@ export default function Dashboard() {
             </div>
             <ArrowRight className="w-4 h-4 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
           </button>
+        </div>
+      )}
+
+      {recentMedia && recentMedia.items.length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-zinc-300">Recent Media</h2>
+            <button
+              onClick={() => navigate('/library')}
+              className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+            >
+              View all
+            </button>
+          </div>
+          <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-2">
+            {recentMedia.items.map((item: any) => (
+              <button
+                key={item.uuid}
+                onClick={() => navigate('/library')}
+                className="group aspect-square bg-zinc-800 rounded-lg overflow-hidden border border-zinc-700/40 hover:border-violet-500/50 transition-all"
+              >
+                <img
+                  src={thumbnailUrl(item.uuid)}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                  onError={(e: any) => { e.target.style.display = 'none' }}
+                />
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

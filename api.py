@@ -233,9 +233,12 @@ def get_media(
     offset: int = Query(0, ge=0),
     sort: str = Query("date", pattern="^(date|quality|recent)$"),
     media_type: str | None = Query(None, pattern="^(photo|video)$"),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
 ):
-    items = list_media(limit=limit, offset=offset, sort_by=sort, media_type=media_type)
-    total = count_media()
+    items = list_media(limit=limit, offset=offset, sort_by=sort, media_type=media_type,
+                       date_from=date_from, date_to=date_to)
+    total = count_media(media_type=media_type, date_from=date_from, date_to=date_to)
     # Strip embeddings from response (they're large binary blobs)
     for item in items:
         item.pop("embedding", None)

@@ -285,6 +285,91 @@ def _create_closing_card(
 
 
 # ---------------------------------------------------------------------------
+# Text overlays
+# ---------------------------------------------------------------------------
+
+def _create_text_overlay(
+    text_data: dict,
+    theme: Theme,
+    resolution: tuple[int, int],
+    fps: int,
+) -> CompositeVideoClip | None:
+    """Create a text overlay clip from a TextElement dict.
+
+    Supports styles: title, subtitle, caption, lower_third
+    Supports animations: fade, slide_up, none
+    """
+    text = text_data.get("text", "")
+    if not text:
+        return None
+
+    duration = text_data.get("duration", 3.0)
+    style = text_data.get("style", "title")
+    animation = text_data.get("animation", "fade")
+    color = text_data.get("color", theme.font_color)
+    font_size = text_data.get("font_size", theme.font_size)
+    bg_color_hex = text_data.get("bg_color", "")
+
+    # Adjust font size by style
+    if style == "subtitle":
+        font_size = int(font_size * 0.7)
+    elif style == "caption":
+        font_size = int(font_size * 0.5)
+    elif style == "lower_third":
+        font_size = int(font_size * 0.6)
+
+    try:
+        txt_clip = TextClip(
+            text=text,
+            font=theme.font,
+            font_size=font_size,
+            color=color,
+            text_align="center",
+            method="caption",
+            size=(int(resolution[0] * 0.8), None),
+        ).with_duration(duration)
+    except Exception:
+        txt_clip = TextClip(
+            text=text,
+            font_size=font_size,
+            color=color,
+            text_align="center",
+            method="caption",
+            size=(int(resolution[0] * 0.8), None),
+        ).with_duration(duration)
+
+    # Position based on style
+    rel_y = text_data.get("y", 0.5)
+    if style == "lower_third":
+        txt_clip = txt_clip.with_position(("center", 0.8), relative=True)
+    elif style == "caption":
+        txt_clip = txt_clip.with_position(("center", 0.85), relative=True)
+    elif style == "subtitle":
+        txt_clip = txt_clip.with_position(("center", 0.65), relative=True)
+    else:
+        txt_clip = txt_clip.with_position(("center", rel_y), relative=True)
+
+    # Add background bar for lower_third style
+    if style == "lower_third" and not bg_color_hex:
+        bg_color_hex = "#000000"
+
+    # Apply animation
+    effects = []
+    if animation == "fade":
+        fade_dur = min(0.5, duration / 3)
+        effects.append(vfx.CrossFadeIn(fade_dur))
+        effects.append(vfx.CrossFadeOut(fade_dur))
+    elif animation == "slide_up":
+        effects.append(vfx.CrossFadeIn(0.3))
+        effects.append(vfx.CrossFadeOut(0.3))
+
+    if effects:
+        txt_clip = txt_clip.with_effects(effects)
+
+    return txt_clip
+
+
+# ---------------------------------------------------------------------------
 # Transitions
 # ---------------------------------------------------------------------------
 
@@ -376,6 +461,7 @@ def build_video(
     music_path: str | None = None,
     output_path: str | None = None,
     progress_callback: "Callable[[int, str], None] | None" = None,
+    text_elements: list[dict] | None = None,
 ) -> str:
     """Assemble a final video from an EditDecisionList.
 
@@ -387,6 +473,8 @@ def build_video(
             ``config.OUTPUT_DIR / "{edl.title}.mp4"``.
         progress_callback: Optional function called with (percent, message)
             during assembly for progress reporting.
+        text_elements: Optional list of text overlay dicts from the
+            project timeline's text track.
 
     Returns:
         The absolute path to the rendered video file as a string.
@@ -467,6 +555,25 @@ def build_video(
         final_video = CompositeVideoClip(processed, size=resolution)
 
     _print_progress(f"Video duration: {final_video.duration:.1f}s")
+
+    # --- Text overlays ----------------------------------------------------
+
+    if text_elements:
+        _report(80, "Adding text overlays...")
+        text_clips = []
+        for te in text_elements:
+            overlay = _create_text_overlay(te, theme, resolution, fps)
+            if overlay is not None:
+                position = te.get("position", 0.0)
+                overlay = overlay.with_start(position)
+                text_clips.append(overlay)
+
+        if text_clips:
+            # Composite text overlays on top of the main video
+            final_video = CompositeVideoClip(
+                [final_video] + text_clips,
+                size=resolution,
+            ).with_duration(final_video.duration)
 
     # --- Music ------------------------------------------------------------
 

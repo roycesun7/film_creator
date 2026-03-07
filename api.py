@@ -1231,6 +1231,24 @@ def _run_project_render(job_id: str, project_id: str):
 
         from assemble.builder import build_video
 
+        # Collect text elements from text tracks
+        text_elements = []
+        for track in project.timeline.tracks:
+            if track.type == "text" and not track.muted:
+                for te in track.text_elements:
+                    text_elements.append({
+                        "text": te.text,
+                        "position": te.position,
+                        "duration": te.duration,
+                        "x": te.x,
+                        "y": te.y,
+                        "font_size": te.font_size,
+                        "color": te.color,
+                        "bg_color": te.bg_color,
+                        "animation": te.animation,
+                        "style": te.style,
+                    })
+
         def progress_cb(pct: int, msg: str):
             _update_job(job_id, progress=pct, message=msg)
 
@@ -1239,6 +1257,7 @@ def _run_project_render(job_id: str, project_id: str):
             theme_name=project.theme,
             music_path=project.music_path or None,
             progress_callback=progress_cb,
+            text_elements=text_elements or None,
         )
 
         # Record render in project history

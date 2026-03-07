@@ -320,6 +320,150 @@ function ClipInspector({
 }
 
 
+function TextElementInspector({
+  element,
+  onUpdate,
+  onRemove,
+  onClose,
+}: {
+  element: TextElement
+  onUpdate: (updates: Partial<TextElement>) => void
+  onRemove: () => void
+  onClose: () => void
+}) {
+  return (
+    <div className="w-72 bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-zinc-200">Text Properties</h3>
+        <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="space-y-3 text-xs">
+        <div>
+          <label className="block text-zinc-500 mb-1">Text</label>
+          <textarea
+            value={element.text}
+            onChange={(e) => onUpdate({ text: e.target.value })}
+            rows={2}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-zinc-200 text-xs focus:outline-none focus:ring-1 focus:ring-violet-500 resize-none"
+            placeholder="Enter text..."
+          />
+        </div>
+
+        <div>
+          <label className="block text-zinc-500 mb-1">Style</label>
+          <select
+            value={element.style}
+            onChange={(e) => onUpdate({ style: e.target.value })}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-zinc-200 text-xs focus:outline-none focus:ring-1 focus:ring-violet-500"
+          >
+            <option value="title">Title</option>
+            <option value="subtitle">Subtitle</option>
+            <option value="caption">Caption</option>
+            <option value="lower_third">Lower Third</option>
+          </select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-zinc-500 mb-1">Position (s)</label>
+            <input
+              type="number"
+              value={element.position}
+              onChange={(e) => onUpdate({ position: Math.max(0, parseFloat(e.target.value) || 0) })}
+              min={0}
+              step={0.5}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-zinc-200 text-xs focus:outline-none focus:ring-1 focus:ring-violet-500"
+            />
+          </div>
+          <div>
+            <label className="block text-zinc-500 mb-1">Duration (s)</label>
+            <input
+              type="number"
+              value={element.duration}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value)
+                if (val > 0 && val <= 60) onUpdate({ duration: val })
+              }}
+              min={0.5}
+              max={60}
+              step={0.5}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-zinc-200 text-xs focus:outline-none focus:ring-1 focus:ring-violet-500"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-zinc-500 mb-1">Animation</label>
+          <select
+            value={element.animation}
+            onChange={(e) => onUpdate({ animation: e.target.value })}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-zinc-200 text-xs focus:outline-none focus:ring-1 focus:ring-violet-500"
+          >
+            <option value="fade">Fade In/Out</option>
+            <option value="slide_up">Slide Up</option>
+            <option value="typewriter">Typewriter</option>
+            <option value="none">None</option>
+          </select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-zinc-500 mb-1">Font Size</label>
+            <input
+              type="number"
+              value={element.font_size}
+              onChange={(e) => onUpdate({ font_size: Math.max(8, parseInt(e.target.value) || 48) })}
+              min={8}
+              max={200}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-zinc-200 text-xs focus:outline-none focus:ring-1 focus:ring-violet-500"
+            />
+          </div>
+          <div>
+            <label className="block text-zinc-500 mb-1">Color</label>
+            <input
+              type="color"
+              value={element.color}
+              onChange={(e) => onUpdate({ color: e.target.value })}
+              className="w-full h-7 bg-zinc-800 border border-zinc-700 rounded cursor-pointer"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-zinc-500 mb-1">Vertical Position</label>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={element.y}
+            onChange={(e) => onUpdate({ y: parseFloat(e.target.value) })}
+            className="w-full accent-violet-500"
+          />
+          <div className="flex justify-between text-[9px] text-zinc-600">
+            <span>Top</span>
+            <span>Center</span>
+            <span>Bottom</span>
+          </div>
+        </div>
+
+        <div className="pt-2 border-t border-zinc-800">
+          <button
+            onClick={onRemove}
+            className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 transition-colors"
+          >
+            <Trash2 className="w-3 h-3" /> Remove Text
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 export default function ProjectEditor() {
   const { id: projectId } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -329,6 +473,7 @@ export default function ProjectEditor() {
   const [project, setProject] = useState<ProjectData | null>(null)
   const [dirty, setDirty] = useState(false)
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null)
+  const [selectedTextId, setSelectedTextId] = useState<string | null>(null)
   const [renderJobId, setRenderJobId] = useState<string | null>(null)
   const [zoom, setZoom] = useState(1.0)
 
@@ -458,7 +603,100 @@ export default function ProjectEditor() {
     }))
   }, [updateProjectLocal])
 
-  // Find selected clip
+  const updateTextElement = useCallback((textId: string, updates: Partial<TextElement>) => {
+    updateProjectLocal(p => ({
+      ...p,
+      timeline: {
+        ...p.timeline,
+        tracks: p.timeline.tracks.map(track => ({
+          ...track,
+          text_elements: track.text_elements.map(te => te.id === textId ? { ...te, ...updates } : te),
+        })),
+      },
+    }))
+  }, [updateProjectLocal])
+
+  const removeTextElement = useCallback((textId: string) => {
+    updateProjectLocal(p => ({
+      ...p,
+      timeline: {
+        ...p.timeline,
+        tracks: p.timeline.tracks.map(track => ({
+          ...track,
+          text_elements: track.text_elements.filter(te => te.id !== textId),
+        })),
+      },
+    }))
+    setSelectedTextId(null)
+  }, [updateProjectLocal])
+
+  const addTextElement = useCallback((style: string = 'caption') => {
+    const id = Math.random().toString(36).slice(2, 14)
+    const textTrack = project?.timeline.tracks.find(t => t.type === 'text')
+    if (!project) return
+
+    const newElement: TextElement = {
+      id,
+      text: style === 'title' ? 'Title' : style === 'lower_third' ? 'Name | Location' : 'Caption text',
+      position: 0,
+      duration: style === 'title' ? 3.0 : 4.0,
+      x: 0.5,
+      y: style === 'lower_third' ? 0.8 : style === 'caption' ? 0.85 : 0.5,
+      font_size: style === 'title' ? 56 : style === 'lower_third' ? 32 : 28,
+      font_family: 'Helvetica',
+      color: '#FFFFFF',
+      bg_color: '',
+      animation: 'fade',
+      style,
+    }
+
+    if (textTrack) {
+      updateProjectLocal(p => ({
+        ...p,
+        timeline: {
+          ...p.timeline,
+          tracks: p.timeline.tracks.map(t =>
+            t.id === textTrack.id
+              ? { ...t, text_elements: [...t.text_elements, newElement] }
+              : t
+          ),
+        },
+      }))
+    } else {
+      // Create a text track
+      const newTrack: TimelineTrack = {
+        id: Math.random().toString(36).slice(2, 10),
+        name: 'Titles',
+        type: 'text',
+        clips: [],
+        text_elements: [newElement],
+        muted: false,
+        locked: false,
+        volume: 1.0,
+      }
+      updateProjectLocal(p => ({
+        ...p,
+        timeline: {
+          ...p.timeline,
+          tracks: [...p.timeline.tracks, newTrack],
+        },
+      }))
+    }
+    setSelectedTextId(id)
+    setSelectedClipId(null)
+  }, [project, updateProjectLocal])
+
+  const handleSelectClip = useCallback((id: string) => {
+    setSelectedClipId(id)
+    setSelectedTextId(null)
+  }, [])
+
+  const handleSelectText = useCallback((id: string) => {
+    setSelectedTextId(id)
+    setSelectedClipId(null)
+  }, [])
+
+  // Find selected clip or text element
   const selectedClip = useMemo(() => {
     if (!project || !selectedClipId) return null
     for (const track of project.timeline.tracks) {
@@ -467,6 +705,15 @@ export default function ProjectEditor() {
     }
     return null
   }, [project, selectedClipId])
+
+  const selectedText = useMemo(() => {
+    if (!project || !selectedTextId) return null
+    for (const track of project.timeline.tracks) {
+      const te = track.text_elements.find(t => t.id === selectedTextId)
+      if (te) return te
+    }
+    return null
+  }, [project, selectedTextId])
 
   const timelineDuration = project?.timeline.duration || 0
   const videoTrack = project?.timeline.tracks.find(t => t.type === 'video')
@@ -664,8 +911,13 @@ export default function ProjectEditor() {
                   track={track}
                   pixelsPerSecond={pixelsPerSecond}
                   timelineDuration={timelineDuration}
-                  selectedClipId={selectedClipId}
-                  onSelectClip={setSelectedClipId}
+                  selectedClipId={selectedClipId || selectedTextId}
+                  onSelectClip={(id) => {
+                    // Check if it's a text element or a clip
+                    const isText = track.text_elements.some(te => te.id === id)
+                    if (isText) handleSelectText(id)
+                    else handleSelectClip(id)
+                  }}
                   onToggleMute={() => toggleTrackMute(track.id)}
                   onToggleLock={() => toggleTrackLock(track.id)}
                 />
@@ -717,6 +969,34 @@ export default function ProjectEditor() {
             onClose={() => setSelectedClipId(null)}
           />
         )}
+        {selectedText && (
+          <TextElementInspector
+            element={selectedText}
+            onUpdate={(updates) => updateTextElement(selectedText.id, updates)}
+            onRemove={() => removeTextElement(selectedText.id)}
+            onClose={() => setSelectedTextId(null)}
+          />
+        )}
+      </div>
+
+      {/* Bottom toolbar */}
+      <div className="shrink-0 bg-zinc-900/90 border-t border-zinc-800 px-4 py-2 flex items-center gap-2">
+        <span className="text-[10px] text-zinc-500 uppercase tracking-wide mr-2">Add Text:</span>
+        {[
+          { style: 'title', label: 'Title' },
+          { style: 'subtitle', label: 'Subtitle' },
+          { style: 'caption', label: 'Caption' },
+          { style: 'lower_third', label: 'Lower Third' },
+        ].map(({ style, label }) => (
+          <button
+            key={style}
+            onClick={() => addTextElement(style)}
+            className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-md bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 border border-zinc-700/50 transition-colors"
+          >
+            <Type className="w-3 h-3" />
+            {label}
+          </button>
+        ))}
       </div>
     </div>
   )

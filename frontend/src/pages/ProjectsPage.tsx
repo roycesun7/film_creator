@@ -30,9 +30,10 @@ export default function ProjectsPage() {
   const [newPrompt, setNewPrompt] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ['projects'],
     queryFn: fetchProjects,
+    retry: 1,
   })
 
   const createMut = useMutation({
@@ -134,7 +135,23 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      {!isLoading && projects.length === 0 && (
+      {error && !isLoading && (
+        <div className="text-center py-20 text-zinc-500">
+          <FolderOpen className="w-16 h-16 mx-auto mb-4 opacity-20" />
+          <p className="text-lg font-medium text-zinc-400">Could not load projects</p>
+          <p className="text-sm mt-2 max-w-md mx-auto text-zinc-600">
+            {error instanceof Error ? error.message : 'Unable to connect to the server. Make sure the API is running.'}
+          </p>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="inline-flex items-center gap-2 mt-6 px-5 py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors font-medium text-sm"
+          >
+            <Plus className="w-4 h-4" /> Create New Project
+          </button>
+        </div>
+      )}
+
+      {!isLoading && !error && projects.length === 0 && (
         <div className="text-center py-20 text-zinc-500">
           <FolderOpen className="w-16 h-16 mx-auto mb-4 opacity-20" />
           <p className="text-lg font-medium text-zinc-400">No projects yet</p>

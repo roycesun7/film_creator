@@ -17,8 +17,8 @@ import {
 import { useToast } from '../components/Toast'
 
 const PIXELS_PER_SECOND = 80
-const TRACK_HEIGHT = 64
-const MIN_CLIP_WIDTH = 24
+const TRACK_HEIGHT = 72
+const MIN_CLIP_WIDTH = 32
 
 const ROLE_COLORS: Record<string, string> = {
   opener: 'bg-amber-600/60 border-amber-500/40',
@@ -33,6 +33,15 @@ const TRACK_TYPE_ICONS: Record<string, typeof Film> = {
   audio: Music,
   text: Type,
 }
+
+const THEME_OPTIONS = [
+  { value: 'minimal', label: 'Minimal', color: '#000000' },
+  { value: 'warm_nostalgic', label: 'Warm Nostalgic', color: '#1A0A00' },
+  { value: 'bold_modern', label: 'Bold Modern', color: '#0D0D0D' },
+  { value: 'cinematic', label: 'Cinematic', color: '#0A0A0A' },
+  { value: 'documentary', label: 'Documentary', color: '#1A1A2E' },
+  { value: 'social_vertical', label: 'Social (9:16)', color: '#000000' },
+]
 
 function TimelineClipComponent({
   clip,
@@ -54,6 +63,8 @@ function TimelineClipComponent({
   const left = clip.position * pixelsPerSecond
   const width = Math.max(MIN_CLIP_WIDTH, clip.duration * pixelsPerSecond)
   const dragRef = useRef<{ startX: number; startPos: number; type: 'move' | 'resize'; startDur: number } | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragType, setDragType] = useState<'move' | 'resize' | null>(null)
   const elRef = useRef<HTMLDivElement>(null)
 
   const isTextElement = 'text' in clip && 'font_size' in clip
@@ -73,6 +84,11 @@ function TimelineClipComponent({
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragRef.current) return
     const dx = e.clientX - dragRef.current.startX
+    // Only activate drag feedback after 3px threshold
+    if (Math.abs(dx) > 3 && !isDragging) {
+      setIsDragging(true)
+      setDragType(dragRef.current.type)
+    }
     if (dragRef.current.type === 'move' && onDragMove) {
       const newPos = Math.max(0, dragRef.current.startPos + dx / pixelsPerSecond)
       onDragMove(Math.round(newPos * 10) / 10)
@@ -80,7 +96,7 @@ function TimelineClipComponent({
       const newDur = Math.max(0.5, dragRef.current.startDur + dx / pixelsPerSecond)
       onDragResize(Math.round(newDur * 10) / 10)
     }
-  }, [pixelsPerSecond, onDragMove, onDragResize])
+  }, [pixelsPerSecond, onDragMove, onDragResize, isDragging])
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     if (!dragRef.current) return
@@ -91,6 +107,8 @@ function TimelineClipComponent({
       onSelect()
     }
     dragRef.current = null
+    setIsDragging(false)
+    setDragType(null)
   }, [onSelect])
 
   return (
@@ -99,33 +117,51 @@ function TimelineClipComponent({
       onPointerDown={(e) => handlePointerDown(e, 'move')}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      className={`absolute top-1 bottom-1 rounded-md border overflow-hidden transition-colors select-none ${roleClass} ${
-        isSelected ? 'ring-2 ring-white/60 z-10' : 'hover:brightness-125'
-      }`}
-      style={{ left: `${left}px`, width: `${width}px`, cursor: 'grab', touchAction: 'none' }}
+      className={`absolute top-1 bottom-1 rounded-md border overflow-hidden select-none ${roleClass} ${
+        isSelected ? 'ring-2 ring-white/60 z-20' : 'hover:brightness-125'
+      } ${isDragging ? 'opacity-80 shadow-lg shadow-black/40 z-30' : ''}`}
+      style={{
+        left: `${left}px`,
+        width: `${width}px`,
+        cursor: isDragging ? (dragType === 'resize' ? 'col-resize' : 'grabbing') : 'grab',
+        touchAction: 'none',
+        transition: isDragging ? 'none' : 'left 0.1s ease-out, width 0.1s ease-out',
+      }}
       title={isTextElement ? (clip as TextElement).text : isMediaClip ? (clip as TimelineClip).reason : ''}
     >
-      <div className="flex items-center h-full px-1.5 gap-1 pointer-events-none">
+      {/* Drag position indicator */}
+      {isDragging && (
+        <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-black/90 text-[9px] text-white px-1.5 py-0.5 rounded whitespace-nowrap z-40 pointer-events-none">
+          {dragType === 'move' ? `${clip.position.toFixed(1)}s` : `${clip.duration.toFixed(1)}s`}
+        </div>
+      )}
+      <div className="flex items-center h-full px-1.5 gap-1.5 pointer-events-none">
         {isMediaClip && (clip as TimelineClip).media_uuid && (
-          <div className="w-10 h-10 rounded shrink-0 overflow-hidden bg-black/30">
+          <div className="w-12 h-12 rounded shrink-0 overflow-hidden bg-black/30">
             <img
               src={thumbnailUrl((clip as TimelineClip).media_uuid)}
               alt=""
               className="w-full h-full object-cover"
+              draggable={false}
               onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
             />
           </div>
         )}
+        {isTextElement && (
+          <div className="w-8 h-8 rounded shrink-0 flex items-center justify-center bg-indigo-500/20">
+            <Type className="w-4 h-4 text-indigo-300" />
+          </div>
+        )}
         <div className="flex-1 min-w-0 overflow-hidden">
-          <p className="text-[9px] font-medium text-white/90 truncate">
+          <p className="text-[10px] font-medium text-white/90 truncate leading-tight">
             {isTextElement
               ? (clip as TextElement).text || 'Text'
               : isMediaClip
-              ? (clip as TimelineClip).role
+              ? (clip as TimelineClip).role.charAt(0).toUpperCase() + (clip as TimelineClip).role.slice(1)
               : 'Clip'
             }
           </p>
-          <p className="text-[8px] text-white/50 tabular-nums">
+          <p className="text-[9px] text-white/50 tabular-nums leading-tight">
             {clip.duration.toFixed(1)}s
           </p>
         </div>
@@ -133,8 +169,10 @@ function TimelineClipComponent({
       {/* Resize handle on right edge */}
       <div
         onPointerDown={(e) => { e.stopPropagation(); handlePointerDown(e, 'resize') }}
-        className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-white/20 pointer-events-auto"
-      />
+        className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-white/20 pointer-events-auto flex items-center justify-center"
+      >
+        <div className="w-0.5 h-5 rounded-full bg-white/0 hover:bg-white/30 transition-colors" />
+      </div>
     </div>
   )
 }
@@ -531,7 +569,7 @@ function MediaBrowser({
   // Browse mode: show recent media
   const browseQuery = useQuery({
     queryKey: ['media-browser', mediaType],
-    queryFn: () => fetchMedia({ limit: 50, sort: 'newest', media_type: mediaType || undefined }),
+    queryFn: () => fetchMedia({ limit: 50, sort: 'recent', media_type: mediaType || undefined }),
   })
 
   // Search mode
@@ -673,13 +711,17 @@ export default function ProjectEditor() {
   const [renderJobId, setRenderJobId] = useState<string | null>(null)
   const [zoom, setZoom] = useState(1.0)
   const [mediaBrowserOpen, setMediaBrowserOpen] = useState(false)
+  const [undoStack, setUndoStack] = useState<ProjectData[]>([])
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const timelineScrollRef = useRef<HTMLDivElement>(null)
 
   const pixelsPerSecond = PIXELS_PER_SECOND * zoom
 
-  const { data: fetchedProject, isLoading } = useQuery({
+  const { data: fetchedProject, isLoading, error: loadError } = useQuery({
     queryKey: ['project', projectId],
     queryFn: () => fetchProject(projectId!),
     enabled: !!projectId,
+    retry: 1,
   })
 
   // Sync fetched data into local state (only when not dirty)
@@ -747,10 +789,21 @@ export default function ProjectEditor() {
   const updateProjectLocal = useCallback((updater: (p: ProjectData) => ProjectData) => {
     setProject(prev => {
       if (!prev) return prev
+      // Push current state to undo stack (limit 30)
+      setUndoStack(stack => [...stack.slice(-29), prev])
       const updated = updater(prev)
       return updated
     })
     setDirty(true)
+  }, [])
+
+  const undo = useCallback(() => {
+    setUndoStack(stack => {
+      if (stack.length === 0) return stack
+      const prev = stack[stack.length - 1]
+      setProject(prev)
+      return stack.slice(0, -1)
+    })
   }, [])
 
   const updateClip = useCallback((clipId: string, updates: Partial<TimelineClip>) => {
@@ -964,6 +1017,37 @@ export default function ProjectEditor() {
     }))
   }, [updateProjectLocal])
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+
+      if (e.key === 'Escape') {
+        setSelectedClipId(null)
+        setSelectedTextId(null)
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && (selectedClipId || selectedTextId)) {
+        e.preventDefault()
+        if (selectedClipId) removeClip(selectedClipId)
+        if (selectedTextId) removeTextElement(selectedTextId)
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+        e.preventDefault()
+        undo()
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault()
+        if (dirty && project) saveMut.mutate()
+      }
+      if (e.key === 'm' && !e.metaKey && !e.ctrlKey) {
+        setMediaBrowserOpen(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedClipId, selectedTextId, dirty, project, undo, removeClip, removeTextElement, saveMut])
+
   // Find selected clip or text element
   const selectedClip = useMemo(() => {
     if (!project || !selectedClipId) return null
@@ -989,10 +1073,30 @@ export default function ProjectEditor() {
   const isJobRunning = job && (job.status === 'queued' || job.status === 'running')
   const isJobDone = job?.status === 'completed'
 
-  if (isLoading || !project) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
         <Loader2 className="w-6 h-6 animate-spin text-zinc-500" />
+      </div>
+    )
+  }
+
+  if (loadError || !project) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3 text-zinc-500">
+        <Layers className="w-12 h-12 opacity-20" />
+        <p className="text-sm font-medium text-zinc-400">
+          {loadError ? 'Failed to load project' : 'Project not found'}
+        </p>
+        <p className="text-xs text-zinc-600 max-w-sm text-center">
+          {loadError instanceof Error ? loadError.message : 'The project may have been deleted, or the server is not running.'}
+        </p>
+        <button
+          onClick={() => navigate('/projects')}
+          className="mt-2 flex items-center gap-1.5 text-xs font-medium px-4 py-2 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700 transition-colors"
+        >
+          <ChevronLeft className="w-3.5 h-3.5" /> Back to Projects
+        </button>
       </div>
     )
   }
@@ -1027,11 +1131,21 @@ export default function ProjectEditor() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={undo}
+            disabled={undoStack.length === 0}
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 disabled:opacity-20 transition-colors"
+            title="Undo (Ctrl+Z)"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
+          <div className="w-px h-5 bg-zinc-800 mx-0.5" />
           <button
             onClick={() => saveMut.mutate()}
             disabled={!dirty || saveMut.isPending}
             className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 transition-colors border border-zinc-700"
+            title="Save (Ctrl+S)"
           >
             {saveMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
             Save
@@ -1043,7 +1157,7 @@ export default function ProjectEditor() {
                 ? 'bg-violet-600/20 text-violet-300 border-violet-500/40'
                 : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border-zinc-700'
             }`}
-            title="Browse and add media from your library"
+            title="Browse and add media (M)"
           >
             <ImagePlus className="w-3.5 h-3.5" />
             Media
@@ -1056,6 +1170,13 @@ export default function ProjectEditor() {
           >
             {previewMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
             AI Arrange
+          </button>
+          <button
+            onClick={() => setSettingsOpen(!settingsOpen)}
+            className={`p-1.5 rounded-lg transition-colors ${settingsOpen ? 'bg-zinc-700 text-zinc-200' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'}`}
+            title="Project settings"
+          >
+            <Settings className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => renderMut.mutate()}
@@ -1082,6 +1203,89 @@ export default function ProjectEditor() {
           <p className="text-[11px] text-zinc-500 mt-1.5 italic">{project.narrative_summary}</p>
         )}
       </div>
+
+      {/* Settings panel (collapsible) */}
+      {settingsOpen && (
+        <div className="shrink-0 bg-zinc-900/50 border-b border-zinc-800 px-4 py-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Theme */}
+            <div>
+              <label className="block text-[10px] font-medium text-zinc-500 uppercase tracking-wide mb-1.5">Theme</label>
+              <div className="grid grid-cols-3 gap-1">
+                {THEME_OPTIONS.map(t => (
+                  <button
+                    key={t.value}
+                    onClick={() => updateProjectLocal(p => ({ ...p, theme: t.value }))}
+                    className={`text-[10px] px-2 py-1.5 rounded-md border transition-colors ${
+                      project.theme === t.value
+                        ? 'bg-violet-600/20 border-violet-500/40 text-violet-300'
+                        : 'bg-zinc-800/60 border-zinc-700/40 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Music */}
+            <div>
+              <label className="block text-[10px] font-medium text-zinc-500 uppercase tracking-wide mb-1.5">Background Music</label>
+              {project.music_path ? (
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 bg-zinc-800/50 border border-zinc-700/40 rounded-md px-2.5 py-1.5 text-xs text-zinc-300 truncate">
+                    <Music className="w-3 h-3 inline mr-1.5 text-zinc-500" />
+                    {project.music_path.split('/').pop()}
+                  </div>
+                  <button
+                    onClick={() => updateProjectLocal(p => ({ ...p, music_path: '' }))}
+                    className="p-1 text-zinc-500 hover:text-red-400 transition-colors"
+                    title="Remove music"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-md bg-zinc-800/60 border border-zinc-700/40 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 cursor-pointer transition-colors">
+                  <Upload className="w-3.5 h-3.5" /> Upload Music
+                  <input
+                    type="file"
+                    accept=".mp3,.wav,.aac,.m4a,.ogg,.flac"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      try {
+                        const result = await uploadMusic(file)
+                        updateProjectLocal(p => ({ ...p, music_path: result.path }))
+                        toast(`Music uploaded: ${result.filename}`, 'success')
+                      } catch (err) {
+                        toast(err instanceof Error ? err.message : 'Upload failed', 'error')
+                      }
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+
+            {/* Music Volume */}
+            <div>
+              <label className="block text-[10px] font-medium text-zinc-500 uppercase tracking-wide mb-1.5">
+                Music Volume: {Math.round((project.music_volume || 0.3) * 100)}%
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={project.music_volume || 0.3}
+                onChange={(e) => updateProjectLocal(p => ({ ...p, music_volume: parseFloat(e.target.value) }))}
+                className="w-full accent-violet-500"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Render progress */}
       {isJobRunning && job && (
@@ -1133,7 +1337,7 @@ export default function ProjectEditor() {
       {/* Main content: Timeline + Inspector */}
       <div className="flex flex-1 min-h-0">
         <div className="flex-1 flex flex-col min-w-0">
-          {/* Zoom controls + timeline ruler */}
+          {/* Zoom controls + timeline info */}
           <div className="shrink-0 flex items-center gap-2 bg-zinc-900/60 border-b border-zinc-800/80 px-4 py-1.5">
             <span className="text-[10px] text-zinc-500">Zoom</span>
             <input
@@ -1147,7 +1351,26 @@ export default function ProjectEditor() {
             />
             <span className="text-[10px] text-zinc-500 tabular-nums w-8">{Math.round(zoom * 100)}%</span>
             <div className="w-px h-4 bg-zinc-800 mx-1" />
-            <span className="text-[10px] text-zinc-500">Theme: {project.theme}</span>
+            <span className="text-[10px] text-zinc-400 capitalize">{project.theme.replace('_', ' ')}</span>
+            {project.music_path && (
+              <>
+                <div className="w-px h-4 bg-zinc-800 mx-1" />
+                <span className="text-[10px] text-zinc-500 flex items-center gap-1">
+                  <Music className="w-3 h-3" /> {project.music_path.split('/').pop()?.slice(0, 20)}
+                </span>
+              </>
+            )}
+            <div className="flex-1" />
+            {selectedClipId && selectedClip && (
+              <span className="text-[10px] text-violet-400 tabular-nums">
+                Selected: {selectedClip.role} @ {selectedClip.position.toFixed(1)}s
+              </span>
+            )}
+            {selectedTextId && selectedText && (
+              <span className="text-[10px] text-indigo-400">
+                Selected: "{selectedText.text.slice(0, 20)}"
+              </span>
+            )}
           </div>
 
           {/* Time ruler */}
@@ -1177,12 +1400,34 @@ export default function ProjectEditor() {
           </div>
 
           {/* Tracks */}
-          <div className="flex-1 overflow-y-auto">
-            {project.timeline.tracks.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-zinc-600">
-                <Layers className="w-10 h-10 mb-3 opacity-30" />
-                <p className="text-sm font-medium text-zinc-400">Empty Timeline</p>
-                <p className="text-xs mt-1">Write a creative brief above and click "AI Arrange" to generate shots</p>
+          <div className="flex-1 overflow-y-auto" ref={timelineScrollRef}>
+            {project.timeline.tracks.length === 0 || (videoTrack && clipCount === 0 && !project.timeline.tracks.some(t => t.text_elements.length > 0)) ? (
+              <div className="flex flex-col items-center justify-center h-full text-zinc-600 gap-4 px-8">
+                <Layers className="w-12 h-12 opacity-20" />
+                <div className="text-center">
+                  <p className="text-sm font-medium text-zinc-400 mb-1">Empty Timeline</p>
+                  <p className="text-xs text-zinc-600 max-w-md">
+                    Write a creative brief and click "AI Arrange" to auto-generate a video, or open the Media Browser to manually add clips.
+                  </p>
+                </div>
+                <div className="flex gap-3 mt-2">
+                  <button
+                    onClick={() => setMediaBrowserOpen(true)}
+                    className="flex items-center gap-1.5 text-xs font-medium px-4 py-2 rounded-lg bg-violet-600/20 text-violet-300 hover:bg-violet-600/30 border border-violet-500/30 transition-colors"
+                  >
+                    <ImagePlus className="w-3.5 h-3.5" /> Open Media Browser
+                  </button>
+                  {project.prompt && (
+                    <button
+                      onClick={() => previewMut.mutate()}
+                      disabled={previewMut.isPending}
+                      className="flex items-center gap-1.5 text-xs font-medium px-4 py-2 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700 transition-colors"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" /> AI Arrange
+                    </button>
+                  )}
+                </div>
+                <p className="text-[10px] text-zinc-700 mt-1">Press <kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-500 text-[9px]">M</kbd> to toggle Media Browser</p>
               </div>
             ) : (
               project.timeline.tracks.map(track => (
@@ -1269,23 +1514,47 @@ export default function ProjectEditor() {
       </div>
 
       {/* Bottom toolbar */}
-      <div className="shrink-0 bg-zinc-900/90 border-t border-zinc-800 px-4 py-2 flex items-center gap-2">
-        <span className="text-[10px] text-zinc-500 uppercase tracking-wide mr-2">Add Text:</span>
-        {[
-          { style: 'title', label: 'Title' },
-          { style: 'subtitle', label: 'Subtitle' },
-          { style: 'caption', label: 'Caption' },
-          { style: 'lower_third', label: 'Lower Third' },
-        ].map(({ style, label }) => (
-          <button
-            key={style}
-            onClick={() => addTextElement(style)}
-            className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-md bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 border border-zinc-700/50 transition-colors"
-          >
-            <Type className="w-3 h-3" />
-            {label}
-          </button>
-        ))}
+      <div className="shrink-0 bg-zinc-900/90 border-t border-zinc-800 px-4 py-2 flex items-center gap-3">
+        {/* Text elements */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-zinc-500 uppercase tracking-wide">Text:</span>
+          {[
+            { style: 'title', label: 'Title' },
+            { style: 'subtitle', label: 'Subtitle' },
+            { style: 'caption', label: 'Caption' },
+            { style: 'lower_third', label: 'Lower Third' },
+          ].map(({ style, label }) => (
+            <button
+              key={style}
+              onClick={() => addTextElement(style)}
+              className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-md bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 border border-zinc-700/50 transition-colors"
+            >
+              <Type className="w-3 h-3" />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="w-px h-5 bg-zinc-800" />
+
+        {/* Quick actions */}
+        <button
+          onClick={() => setMediaBrowserOpen(true)}
+          className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-md bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 border border-zinc-700/50 transition-colors"
+        >
+          <ImagePlus className="w-3 h-3" /> Add Media
+        </button>
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Keyboard hints */}
+        <div className="flex items-center gap-3 text-[9px] text-zinc-600">
+          <span><kbd className="px-1 py-0.5 rounded bg-zinc-800/80 text-zinc-500">Del</kbd> Remove</span>
+          <span><kbd className="px-1 py-0.5 rounded bg-zinc-800/80 text-zinc-500">Esc</kbd> Deselect</span>
+          <span><kbd className="px-1 py-0.5 rounded bg-zinc-800/80 text-zinc-500">Ctrl+Z</kbd> Undo</span>
+          <span><kbd className="px-1 py-0.5 rounded bg-zinc-800/80 text-zinc-500">M</kbd> Media</span>
+        </div>
       </div>
     </div>
   )

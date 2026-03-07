@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
 import { Film, LayoutDashboard, FolderOpen, Search, Clapperboard, Play, Menu, X } from 'lucide-react'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import Dashboard from './pages/Dashboard'
 import Library from './pages/Library'
 import SearchPage from './pages/SearchPage'
@@ -114,13 +115,15 @@ export default function App() {
 
       {/* Main content */}
       <main className="flex-1 overflow-y-auto bg-zinc-900 pt-[52px] md:pt-0">
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/library" element={<Library />} />
-          <Route path="/search" element={<SearchPage />} />
-          <Route path="/studio" element={<Studio />} />
-          <Route path="/videos" element={<Videos />} />
-        </Routes>
+        <ErrorBoundary>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/library" element={<Library />} />
+            <Route path="/search" element={<SearchPage />} />
+            <Route path="/studio" element={<ErrorBoundary fallbackMessage="Studio encountered an error"><Studio /></ErrorBoundary>} />
+            <Route path="/videos" element={<Videos />} />
+          </Routes>
+        </ErrorBoundary>
       </main>
     </div>
   )

@@ -145,7 +145,7 @@ export default function Dashboard() {
 
       {/* Quick actions */}
       {s.total > 0 && (
-        <div className="grid grid-cols-3 gap-3 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
           <button
             onClick={() => navigate('/library')}
             className="flex items-center gap-3 bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-4 hover:border-zinc-600 transition-colors text-left group"

@@ -787,7 +787,8 @@ def _run_generate_job(job_id: str, req: GenerateRequest):
     try:
         from curate.search import hybrid_search
         from curate.director import create_edit_decision_list
-        from assemble.builder import build_video
+        from assemble import get_build_video
+        build_video = get_build_video()
 
         _update_job(job_id, status="running", message="Searching for matching clips...")
 
@@ -867,7 +868,8 @@ def start_generate(req: GenerateRequest):
 def _run_custom_generate_job(job_id: str, req: CustomGenerateRequest):
     try:
         from curate.director import Shot as DShot, EditDecisionList
-        from assemble.builder import build_video
+        from assemble import get_build_video
+        build_video = get_build_video()
 
         _update_job(job_id, status="running", message="Resolving media paths...")
 
@@ -1229,7 +1231,8 @@ def _run_project_render(job_id: str, project_id: str):
 
         _update_job(job_id, progress=10, message="Starting video assembly...")
 
-        from assemble.builder import build_video
+        from assemble import get_build_video
+        build_video = get_build_video()
 
         # Collect text elements from text tracks
         text_elements = []

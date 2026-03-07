@@ -3,14 +3,16 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   fetchProject, updateProject, projectPreview, projectRender,
-  fetchJob, thumbnailUrl, uploadMusic,
-  type ProjectData, type TimelineClip, type TimelineTrack, type TextElement
+  fetchJob, thumbnailUrl, searchMedia, fetchMedia, uploadMusic,
+  type ProjectData, type TimelineClip, type TimelineTrack, type TextElement,
+  type MediaItem
 } from '../api'
 import {
   Loader2, Play, Save, Sparkles, Clapperboard, Film, Music, Type,
   Plus, Trash2, GripVertical, X, ChevronLeft, Clock, Eye,
   Volume2, VolumeX, Lock, Unlock, ArrowUp, ArrowDown, Download,
-  Settings, Layers, RotateCcw, Upload, Link2
+  Settings, Layers, RotateCcw, Upload, Link2, Search, ImagePlus,
+  FolderOpen, GripHorizontal
 } from 'lucide-react'
 import { useToast } from '../components/Toast'
 
@@ -38,31 +40,72 @@ function TimelineClipComponent({
   pixelsPerSecond,
   onSelect,
   isSelected,
+  onDragMove,
+  onDragResize,
 }: {
   clip: TimelineClip | TextElement
   trackType: string
   pixelsPerSecond: number
   onSelect: () => void
   isSelected: boolean
+  onDragMove?: (newPosition: number) => void
+  onDragResize?: (newDuration: number) => void
 }) {
   const left = clip.position * pixelsPerSecond
   const width = Math.max(MIN_CLIP_WIDTH, clip.duration * pixelsPerSecond)
+  const dragRef = useRef<{ startX: number; startPos: number; type: 'move' | 'resize'; startDur: number } | null>(null)
+  const elRef = useRef<HTMLDivElement>(null)
 
   const isTextElement = 'text' in clip && 'font_size' in clip
   const isMediaClip = 'media_uuid' in clip
 
   const roleClass = isMediaClip ? (ROLE_COLORS[(clip as TimelineClip).role] || 'bg-zinc-600/60 border-zinc-500/40') : 'bg-indigo-600/50 border-indigo-500/40'
 
+  const handlePointerDown = useCallback((e: React.PointerEvent, type: 'move' | 'resize') => {
+    e.stopPropagation()
+    e.preventDefault()
+    const el = elRef.current
+    if (!el) return
+    el.setPointerCapture(e.pointerId)
+    dragRef.current = { startX: e.clientX, startPos: clip.position, type, startDur: clip.duration }
+  }, [clip.position, clip.duration])
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragRef.current) return
+    const dx = e.clientX - dragRef.current.startX
+    if (dragRef.current.type === 'move' && onDragMove) {
+      const newPos = Math.max(0, dragRef.current.startPos + dx / pixelsPerSecond)
+      onDragMove(Math.round(newPos * 10) / 10)
+    } else if (dragRef.current.type === 'resize' && onDragResize) {
+      const newDur = Math.max(0.5, dragRef.current.startDur + dx / pixelsPerSecond)
+      onDragResize(Math.round(newDur * 10) / 10)
+    }
+  }, [pixelsPerSecond, onDragMove, onDragResize])
+
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    if (!dragRef.current) return
+    const el = elRef.current
+    if (el) el.releasePointerCapture(e.pointerId)
+    // If barely moved, treat as click/select
+    if (Math.abs(e.clientX - dragRef.current.startX) < 3) {
+      onSelect()
+    }
+    dragRef.current = null
+  }, [onSelect])
+
   return (
-    <button
-      onClick={(e) => { e.stopPropagation(); onSelect() }}
-      className={`absolute top-1 bottom-1 rounded-md border overflow-hidden transition-all ${roleClass} ${
+    <div
+      ref={elRef}
+      onPointerDown={(e) => handlePointerDown(e, 'move')}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      className={`absolute top-1 bottom-1 rounded-md border overflow-hidden transition-colors select-none ${roleClass} ${
         isSelected ? 'ring-2 ring-white/60 z-10' : 'hover:brightness-125'
       }`}
-      style={{ left: `${left}px`, width: `${width}px` }}
+      style={{ left: `${left}px`, width: `${width}px`, cursor: 'grab', touchAction: 'none' }}
       title={isTextElement ? (clip as TextElement).text : isMediaClip ? (clip as TimelineClip).reason : ''}
     >
-      <div className="flex items-center h-full px-1.5 gap-1">
+      <div className="flex items-center h-full px-1.5 gap-1 pointer-events-none">
         {isMediaClip && (clip as TimelineClip).media_uuid && (
           <div className="w-10 h-10 rounded shrink-0 overflow-hidden bg-black/30">
             <img
@@ -87,7 +130,12 @@ function TimelineClipComponent({
           </p>
         </div>
       </div>
-    </button>
+      {/* Resize handle on right edge */}
+      <div
+        onPointerDown={(e) => { e.stopPropagation(); handlePointerDown(e, 'resize') }}
+        className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-white/20 pointer-events-auto"
+      />
+    </div>
   )
 }
 
@@ -99,6 +147,8 @@ function TrackLane({
   onSelectClip,
   onToggleMute,
   onToggleLock,
+  onMoveClip,
+  onResizeClip,
 }: {
   track: TimelineTrack
   pixelsPerSecond: number
@@ -107,6 +157,8 @@ function TrackLane({
   onSelectClip: (id: string) => void
   onToggleMute: () => void
   onToggleLock: () => void
+  onMoveClip: (id: string, newPosition: number) => void
+  onResizeClip: (id: string, newDuration: number) => void
 }) {
   const TrackIcon = TRACK_TYPE_ICONS[track.type] || Film
   const timelineWidth = Math.max(800, timelineDuration * pixelsPerSecond + 100)
@@ -164,6 +216,8 @@ function TrackLane({
               pixelsPerSecond={pixelsPerSecond}
               onSelect={() => onSelectClip(item.id)}
               isSelected={selectedClipId === item.id}
+              onDragMove={track.locked ? undefined : (pos) => onMoveClip(item.id, pos)}
+              onDragResize={track.locked ? undefined : (dur) => onResizeClip(item.id, dur)}
             />
           ))}
         </div>
@@ -464,6 +518,148 @@ function TextElementInspector({
 }
 
 
+function MediaBrowser({
+  onAddClip,
+  onClose,
+}: {
+  onAddClip: (item: MediaItem) => void
+  onClose: () => void
+}) {
+  const [query, setQuery] = useState('')
+  const [mediaType, setMediaType] = useState<string>('')
+
+  // Browse mode: show recent media
+  const browseQuery = useQuery({
+    queryKey: ['media-browser', mediaType],
+    queryFn: () => fetchMedia({ limit: 50, sort: 'newest', media_type: mediaType || undefined }),
+  })
+
+  // Search mode
+  const searchMut = useMutation({
+    mutationFn: (q: string) => searchMedia({ query: q, limit: 30 }),
+  })
+
+  const handleSearch = () => {
+    if (query.trim()) searchMut.mutate(query.trim())
+  }
+
+  const items: MediaItem[] = query && searchMut.data
+    ? searchMut.data.results
+    : browseQuery.data?.items || []
+
+  const isLoading = browseQuery.isLoading || searchMut.isPending
+
+  return (
+    <div className="w-72 bg-zinc-900 border-l border-zinc-800 flex flex-col h-full">
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-zinc-800">
+        <h3 className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+          <FolderOpen className="w-3.5 h-3.5" /> Media Browser
+        </h3>
+        <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Search bar */}
+      <div className="px-3 py-2 border-b border-zinc-800/60 space-y-2">
+        <div className="flex gap-1.5">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            placeholder="Search media..."
+            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-md px-2 py-1 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+          />
+          <button
+            onClick={handleSearch}
+            disabled={!query.trim()}
+            className="p-1.5 rounded-md bg-zinc-800 border border-zinc-700 text-zinc-400 hover:text-zinc-200 disabled:opacity-30 transition-colors"
+          >
+            <Search className="w-3 h-3" />
+          </button>
+        </div>
+        <div className="flex gap-1">
+          {['', 'photo', 'video'].map(t => (
+            <button
+              key={t}
+              onClick={() => { setMediaType(t); if (query) searchMut.reset() }}
+              className={`text-[10px] px-2 py-0.5 rounded-full transition-colors ${
+                mediaType === t ? 'bg-violet-600/30 text-violet-300' : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              {t || 'All'}
+            </button>
+          ))}
+          {query && (
+            <button
+              onClick={() => { setQuery(''); searchMut.reset() }}
+              className="text-[10px] px-2 py-0.5 text-zinc-500 hover:text-zinc-300 ml-auto"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Results */}
+      <div className="flex-1 overflow-y-auto p-2">
+        {isLoading && (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-4 h-4 animate-spin text-zinc-500" />
+          </div>
+        )}
+
+        {!isLoading && items.length === 0 && (
+          <div className="text-center py-8 text-zinc-600 text-xs">
+            {query ? 'No results found' : 'No media in library'}
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-1.5">
+          {items.map(item => (
+            <div
+              key={item.uuid}
+              className="group relative rounded-lg overflow-hidden border border-zinc-700/40 hover:border-violet-500/40 transition-colors bg-zinc-800"
+            >
+              <div className="aspect-square">
+                <img
+                  src={thumbnailUrl(item.uuid)}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                />
+              </div>
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+                <button
+                  onClick={() => onAddClip(item)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity bg-violet-600 hover:bg-violet-500 text-white text-[10px] font-medium px-2 py-1 rounded-md flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" /> Add
+                </button>
+              </div>
+              <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent px-1.5 pb-1 pt-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[8px] text-zinc-300 uppercase">{item.media_type}</span>
+                  {item.duration && (
+                    <span className="text-[8px] text-zinc-400 tabular-nums">
+                      {item.duration > 60
+                        ? `${Math.floor(item.duration / 60)}:${String(Math.floor(item.duration % 60)).padStart(2, '0')}`
+                        : `${Math.floor(item.duration)}s`
+                      }
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 export default function ProjectEditor() {
   const { id: projectId } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -476,6 +672,7 @@ export default function ProjectEditor() {
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null)
   const [renderJobId, setRenderJobId] = useState<string | null>(null)
   const [zoom, setZoom] = useState(1.0)
+  const [mediaBrowserOpen, setMediaBrowserOpen] = useState(false)
 
   const pixelsPerSecond = PIXELS_PER_SECOND * zoom
 
@@ -696,6 +893,77 @@ export default function ProjectEditor() {
     setSelectedClipId(null)
   }, [])
 
+  const addClipFromMedia = useCallback((item: MediaItem) => {
+    if (!project) return
+    const videoTrack = project.timeline.tracks.find(t => t.type === 'video')
+    if (!videoTrack) return
+
+    // Place at the end of existing clips
+    let endPos = 0
+    for (const c of videoTrack.clips) {
+      const cEnd = c.position + c.duration
+      if (cEnd > endPos) endPos = cEnd
+    }
+
+    const clipDuration = item.media_type === 'video' ? Math.min(item.duration || 5, 10) : 4.0
+    const newClip: TimelineClip = {
+      id: Math.random().toString(36).slice(2, 14),
+      media_uuid: item.uuid,
+      media_path: item.path,
+      media_type: item.media_type,
+      in_point: 0,
+      out_point: item.media_type === 'video' ? clipDuration : 0,
+      position: endPos,
+      duration: clipDuration,
+      volume: 1.0,
+      effects: [],
+      transition: { type: 'crossfade', duration: 0.5 },
+      role: 'highlight',
+      reason: '',
+    }
+
+    updateProjectLocal(p => ({
+      ...p,
+      timeline: {
+        ...p.timeline,
+        tracks: p.timeline.tracks.map(t =>
+          t.id === videoTrack.id ? { ...t, clips: [...t.clips, newClip] } : t
+        ),
+        duration: Math.max(p.timeline.duration, endPos + clipDuration),
+      },
+    }))
+    setSelectedClipId(newClip.id)
+    setSelectedTextId(null)
+  }, [project, updateProjectLocal])
+
+  const moveClip = useCallback((clipId: string, newPosition: number) => {
+    updateProjectLocal(p => ({
+      ...p,
+      timeline: {
+        ...p.timeline,
+        tracks: p.timeline.tracks.map(track => ({
+          ...track,
+          clips: track.clips.map(c => c.id === clipId ? { ...c, position: newPosition } : c),
+          text_elements: track.text_elements.map(te => te.id === clipId ? { ...te, position: newPosition } : te),
+        })),
+      },
+    }))
+  }, [updateProjectLocal])
+
+  const resizeClip = useCallback((clipId: string, newDuration: number) => {
+    updateProjectLocal(p => ({
+      ...p,
+      timeline: {
+        ...p.timeline,
+        tracks: p.timeline.tracks.map(track => ({
+          ...track,
+          clips: track.clips.map(c => c.id === clipId ? { ...c, duration: newDuration } : c),
+          text_elements: track.text_elements.map(te => te.id === clipId ? { ...te, duration: newDuration } : te),
+        })),
+      },
+    }))
+  }, [updateProjectLocal])
+
   // Find selected clip or text element
   const selectedClip = useMemo(() => {
     if (!project || !selectedClipId) return null
@@ -767,6 +1035,18 @@ export default function ProjectEditor() {
           >
             {saveMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
             Save
+          </button>
+          <button
+            onClick={() => setMediaBrowserOpen(!mediaBrowserOpen)}
+            className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors border ${
+              mediaBrowserOpen
+                ? 'bg-violet-600/20 text-violet-300 border-violet-500/40'
+                : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border-zinc-700'
+            }`}
+            title="Browse and add media from your library"
+          >
+            <ImagePlus className="w-3.5 h-3.5" />
+            Media
           </button>
           <button
             onClick={() => previewMut.mutate()}
@@ -913,13 +1193,14 @@ export default function ProjectEditor() {
                   timelineDuration={timelineDuration}
                   selectedClipId={selectedClipId || selectedTextId}
                   onSelectClip={(id) => {
-                    // Check if it's a text element or a clip
                     const isText = track.text_elements.some(te => te.id === id)
                     if (isText) handleSelectText(id)
                     else handleSelectClip(id)
                   }}
                   onToggleMute={() => toggleTrackMute(track.id)}
                   onToggleLock={() => toggleTrackLock(track.id)}
+                  onMoveClip={moveClip}
+                  onResizeClip={resizeClip}
                 />
               ))
             )}
@@ -975,6 +1256,14 @@ export default function ProjectEditor() {
             onUpdate={(updates) => updateTextElement(selectedText.id, updates)}
             onRemove={() => removeTextElement(selectedText.id)}
             onClose={() => setSelectedTextId(null)}
+          />
+        )}
+
+        {/* Media Browser panel */}
+        {mediaBrowserOpen && (
+          <MediaBrowser
+            onAddClip={addClipFromMedia}
+            onClose={() => setMediaBrowserOpen(false)}
           />
         )}
       </div>

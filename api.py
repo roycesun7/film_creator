@@ -1032,3 +1032,235 @@ def get_video_thumbnail(filename: str):
     if not thumb_path.exists():
         raise HTTPException(status_code=500, detail="Thumbnail generation produced no output")
     return FileResponse(str(thumb_path), media_type="image/jpeg")
+
+
+# ---------------------------------------------------------------------------
+# Projects
+# ---------------------------------------------------------------------------
+
+from projects import (
+    Project as ProjectModel,
+    save_project,
+    load_project,
+    list_projects as list_projects_fn,
+    delete_project as delete_project_fn,
+    edl_to_project,
+    _project_to_dict,
+    _dict_to_project,
+)
+
+
+class CreateProjectRequest(BaseModel):
+    name: str = "Untitled Project"
+    prompt: str = ""
+    theme: str = "minimal"
+
+
+class UpdateProjectRequest(BaseModel):
+    """Accepts a full or partial project dict for saving."""
+    project: dict
+
+
+@app.get("/api/projects")
+def api_list_projects():
+    return {"projects": list_projects_fn()}
+
+
+@app.post("/api/projects")
+def api_create_project(req: CreateProjectRequest):
+    project = ProjectModel(name=req.name, prompt=req.prompt, theme=req.theme)
+    project_id = save_project(project)
+    return {"id": project_id, "project": _project_to_dict(project)}
+
+
+@app.get("/api/projects/{project_id}")
+def api_get_project(project_id: str):
+    try:
+        project = load_project(project_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return _project_to_dict(project)
+
+
+@app.put("/api/projects/{project_id}")
+def api_update_project(project_id: str, req: UpdateProjectRequest):
+    try:
+        existing = load_project(project_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Merge the incoming dict into the existing project
+    data = req.project
+    data["id"] = project_id  # prevent ID change
+    data["created_at"] = existing.created_at  # preserve creation time
+    project = _dict_to_project(data)
+    save_project(project)
+    return _project_to_dict(project)
+
+
+@app.delete("/api/projects/{project_id}")
+def api_delete_project(project_id: str):
+    if delete_project_fn(project_id):
+        return {"deleted": True}
+    raise HTTPException(status_code=404, detail="Project not found")
+
+
+@app.post("/api/projects/{project_id}/preview")
+def api_project_preview(project_id: str):
+    """Generate an EDL from the project's prompt, convert to timeline, and save."""
+    try:
+        project = load_project(project_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not project.prompt:
+        raise HTTPException(status_code=400, detail="Project has no prompt")
+
+    from curate.search import hybrid_search
+    from curate.director import create_edit_decision_list
+    from dataclasses import asdict as dc_asdict
+
+    candidates = hybrid_search(query=project.prompt, limit=30)
+    for c in candidates:
+        c.pop("embedding", None)
+        c.pop("clip_embedding", None)
+
+    edl = create_edit_decision_list(
+        candidates=candidates,
+        prompt=project.prompt,
+        target_duration=60.0,
+    )
+
+    # Convert EDL to project timeline
+    new_project = edl_to_project(
+        edl_data=dc_asdict(edl),
+        prompt=project.prompt,
+        theme=project.theme,
+        music_path=project.music_path,
+    )
+    # Preserve original project metadata
+    new_project.id = project.id
+    new_project.created_at = project.created_at
+    new_project.render_history = project.render_history
+    new_project.resolution = project.resolution
+    new_project.fps = project.fps
+
+    save_project(new_project)
+    return _project_to_dict(new_project)
+
+
+@app.post("/api/projects/{project_id}/render")
+def api_project_render(project_id: str, background_tasks: BackgroundTasks):
+    """Render a project's timeline to video."""
+    try:
+        project = load_project(project_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    video_track = None
+    for track in project.timeline.tracks:
+        if track.type == "video" and track.clips:
+            video_track = track
+            break
+
+    if not video_track or not video_track.clips:
+        raise HTTPException(status_code=400, detail="No video clips in timeline")
+
+    job_id = uuid_mod.uuid4().hex[:12]
+    _jobs[job_id] = {
+        "id": job_id,
+        "type": "project_render",
+        "status": "queued",
+        "progress": 0,
+        "message": "Queued for rendering...",
+        "created_at": time.time(),
+        "updated_at": time.time(),
+        "project_id": project_id,
+    }
+
+    thread = threading.Thread(
+        target=_run_project_render,
+        args=(job_id, project_id),
+        daemon=True,
+    )
+    thread.start()
+
+    return {"job_id": job_id}
+
+
+def _run_project_render(job_id: str, project_id: str):
+    """Background thread: render a project's timeline using the assembly pipeline."""
+    try:
+        _update_job(job_id, status="running", progress=5, message="Loading project...")
+
+        project = load_project(project_id)
+        video_track = None
+        for track in project.timeline.tracks:
+            if track.type == "video" and track.clips:
+                video_track = track
+                break
+
+        if not video_track:
+            _update_job(job_id, status="failed", message="No video clips found")
+            return
+
+        # Convert project timeline clips back to EDL format for the assembly pipeline
+        from curate.director import Shot, EditDecisionList
+
+        shots = []
+        for clip in video_track.clips:
+            shots.append(Shot(
+                uuid=clip.media_uuid,
+                path=clip.media_path,
+                media_type=clip.media_type,
+                start_time=clip.in_point,
+                end_time=clip.out_point if clip.out_point > clip.in_point else clip.in_point + clip.duration,
+                role=clip.role,
+                reason=clip.reason,
+            ))
+
+        edl = EditDecisionList(
+            shots=shots,
+            title=project.name,
+            narrative_summary=project.narrative_summary,
+            estimated_duration=project.timeline.duration,
+            music_mood=project.music_mood,
+        )
+
+        _update_job(job_id, progress=10, message="Starting video assembly...")
+
+        from assemble.builder import build_video
+
+        def progress_cb(pct: int, msg: str):
+            _update_job(job_id, progress=pct, message=msg)
+
+        output = build_video(
+            edl=edl,
+            theme_name=project.theme,
+            music_path=project.music_path or None,
+            progress_callback=progress_cb,
+        )
+
+        # Record render in project history
+        from projects import RenderRecord
+        record = RenderRecord(
+            output_path=f"/output/{Path(output).name}",
+            theme=project.theme,
+            resolution=f"{project.resolution[0]}x{project.resolution[1]}",
+            duration=project.timeline.duration,
+        )
+        project.render_history.append(record)
+        save_project(project)
+
+        _update_job(
+            job_id,
+            status="completed",
+            progress=100,
+            message="Video rendered!",
+            output_path=f"/output/{Path(output).name}",
+            title=project.name,
+        )
+
+    except Exception as exc:
+        logger.exception("Project render failed for %s", project_id)
+        _update_job(job_id, status="failed", message=str(exc))

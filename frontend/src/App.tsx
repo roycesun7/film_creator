@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Film, LayoutDashboard, FolderOpen, Search, Clapperboard, Play, Menu, X } from 'lucide-react'
+import { Film, LayoutDashboard, FolderOpen, Search, Clapperboard, Play, Menu, X, Layers } from 'lucide-react'
 import { fetchStats, fetchVideos } from './api'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import Dashboard from './pages/Dashboard'
@@ -9,13 +9,16 @@ import Library from './pages/Library'
 import SearchPage from './pages/SearchPage'
 import Studio from './pages/Studio'
 import Videos from './pages/Videos'
+import ProjectsPage from './pages/ProjectsPage'
+import ProjectEditor from './pages/ProjectEditor'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', shortcut: '1' },
   { to: '/library', icon: FolderOpen, label: 'Library', shortcut: '2' },
   { to: '/search', icon: Search, label: 'Search', shortcut: '3' },
-  { to: '/studio', icon: Clapperboard, label: 'Studio', shortcut: '4' },
-  { to: '/videos', icon: Play, label: 'Videos', shortcut: '5' },
+  { to: '/projects', icon: Layers, label: 'Projects', shortcut: '4' },
+  { to: '/studio', icon: Clapperboard, label: 'Studio', shortcut: '5' },
+  { to: '/videos', icon: Play, label: 'Videos', shortcut: '6' },
 ]
 
 export default function App() {
@@ -36,7 +39,7 @@ export default function App() {
       const tag = (e.target as HTMLElement).tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
 
-      if ((e.ctrlKey || e.metaKey) && e.key >= '1' && e.key <= '5') {
+      if ((e.ctrlKey || e.metaKey) && e.key >= '1' && e.key <= '6') {
         e.preventDefault()
         const idx = parseInt(e.key) - 1
         if (navItems[idx]) navigate(navItems[idx].to)
@@ -137,6 +140,8 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/library" element={<Library />} />
             <Route path="/search" element={<SearchPage />} />
+            <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/project/:id" element={<ProjectEditor />} />
             <Route path="/studio" element={<ErrorBoundary fallbackMessage="Studio encountered an error"><Studio /></ErrorBoundary>} />
             <Route path="/videos" element={<Videos />} />
           </Routes>

@@ -246,3 +246,123 @@ export interface CustomGenerateRequest {
   theme: string
   music_path?: string
 }
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+export interface ClipEffect {
+  type: string
+  params: Record<string, any>
+}
+
+export interface ClipTransition {
+  type: string
+  duration: number
+}
+
+export interface TimelineClip {
+  id: string
+  media_uuid: string
+  media_path: string
+  media_type: string
+  in_point: number
+  out_point: number
+  position: number
+  duration: number
+  volume: number
+  effects: ClipEffect[]
+  transition: ClipTransition
+  role: string
+  reason: string
+}
+
+export interface TextElement {
+  id: string
+  text: string
+  position: number
+  duration: number
+  x: number
+  y: number
+  font_size: number
+  font_family: string
+  color: string
+  bg_color: string
+  animation: string
+  style: string
+}
+
+export interface TimelineTrack {
+  id: string
+  name: string
+  type: string
+  clips: TimelineClip[]
+  text_elements: TextElement[]
+  muted: boolean
+  locked: boolean
+  volume: number
+}
+
+export interface Timeline {
+  tracks: TimelineTrack[]
+  duration: number
+}
+
+export interface RenderRecord {
+  id: string
+  output_path: string
+  rendered_at: number
+  theme: string
+  resolution: string
+  duration: number
+}
+
+export interface ProjectData {
+  id: string
+  name: string
+  prompt: string
+  created_at: number
+  updated_at: number
+  theme: string
+  resolution: [number, number]
+  fps: number
+  music_path: string
+  music_volume: number
+  timeline: Timeline
+  render_history: RenderRecord[]
+  narrative_summary: string
+  music_mood: string
+}
+
+export interface ProjectSummary {
+  id: string
+  name: string
+  prompt: string
+  theme: string
+  created_at: number
+  updated_at: number
+  duration: number
+  track_count: number
+  render_count: number
+}
+
+export const fetchProjects = () =>
+  request<{ projects: ProjectSummary[] }>('/api/projects')
+
+export const createProject = (body: { name?: string; prompt?: string; theme?: string }) =>
+  request<{ id: string; project: ProjectData }>('/api/projects', { method: 'POST', body: JSON.stringify(body) })
+
+export const fetchProject = (id: string) =>
+  request<ProjectData>(`/api/projects/${id}`)
+
+export const updateProject = (id: string, project: ProjectData) =>
+  request<ProjectData>(`/api/projects/${id}`, { method: 'PUT', body: JSON.stringify({ project }) })
+
+export const deleteProjectApi = (id: string) =>
+  request<{ deleted: boolean }>(`/api/projects/${id}`, { method: 'DELETE' })
+
+export const projectPreview = (id: string) =>
+  request<ProjectData>(`/api/projects/${id}/preview`, { method: 'POST' })
+
+export const projectRender = (id: string) =>
+  request<{ job_id: string }>(`/api/projects/${id}/render`, { method: 'POST' })

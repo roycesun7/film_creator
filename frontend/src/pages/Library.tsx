@@ -381,7 +381,7 @@ export default function Library() {
 
   return (
     <div
-      className="p-8 max-w-7xl mx-auto min-h-full"
+      className="p-4 sm:p-8 max-w-7xl mx-auto min-h-full"
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}

@@ -79,7 +79,7 @@ export default function SearchPage() {
   }
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold">Search</h1>
         <p className="text-sm text-zinc-400 mt-1">Find media using natural language</p>

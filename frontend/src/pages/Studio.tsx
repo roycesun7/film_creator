@@ -204,6 +204,9 @@ export default function Studio() {
         estimated_duration: data.estimated_duration,
       })
       setEdlModified(false)
+      if (data.shots.length === 0) {
+        toast('No suitable shots found. Try a different prompt or add more media.', 'info')
+      }
     },
     onError: (err) => toast(err instanceof Error ? err.message : 'Preview failed', 'error'),
   })
@@ -324,7 +327,7 @@ export default function Studio() {
   const hasEdl = edlMeta && shots.length > 0
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-5xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold">Studio</h1>
         <p className="text-sm text-zinc-400 mt-1">Describe your video and let AI create it</p>
@@ -506,6 +509,32 @@ export default function Studio() {
           )}
         </button>
       </form>
+
+      {/* Planning skeleton */}
+      {previewMut.isPending && (
+        <div className="space-y-4 animate-pulse">
+          <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-5">
+            <div className="h-6 w-48 bg-zinc-700 rounded mb-3" />
+            <div className="h-4 w-full bg-zinc-700/60 rounded mb-2" />
+            <div className="h-4 w-2/3 bg-zinc-700/60 rounded" />
+            <div className="flex gap-4 mt-4">
+              <div className="h-3 w-16 bg-zinc-700/40 rounded" />
+              <div className="h-3 w-20 bg-zinc-700/40 rounded" />
+              <div className="h-3 w-24 bg-zinc-700/40 rounded" />
+            </div>
+          </div>
+          <div className="flex gap-1">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-12 flex-1 bg-zinc-800 rounded" />
+            ))}
+          </div>
+          <div className="space-y-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-20 bg-zinc-800/40 border border-zinc-700/40 rounded-lg" />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* EDL Preview */}
       {hasEdl && (

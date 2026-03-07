@@ -26,7 +26,7 @@ Build an incredibly smooth video editing experience where you can upload clips, 
 │  Upload → Twelve Labs Marengo (1024-d)      │
 │         + Claude Vision descriptions (opt)  │
 │         + CLIP ViT-B-32 fallback (512-d)    │
-│         → SQLite + vector index             │
+│         → Supabase (Postgres + pgvector)     │
 └─────────────────────┬───────────────────────┘
                       │
 ┌─────────────────────▼───────────────────────┐
@@ -52,7 +52,7 @@ Build an incredibly smooth video editing experience where you can upload clips, 
 - **open-clip-torch** (ViT-B-32) — local CLIP fallback embeddings (512-d)
 - **anthropic SDK** — Claude Vision for descriptions, Claude as video director
 - **moviepy 2.x** — video assembly, Ken Burns, transitions, export
-- **SQLite** — media index + segment embeddings (at `media_index.db`)
+- **Supabase (Postgres + pgvector)** — managed database for media index, embeddings, and vector search
 - **osxphotos** — optional Apple Photos library import
 
 ## Project Structure
@@ -67,7 +67,7 @@ video-composer/
 │   ├── clip_embeddings.py        # CLIP embed_image/embed_text (fallback)
 │   ├── apple_photos.py           # osxphotos integration (optional)
 │   ├── vision_describe.py        # Claude Vision structured descriptions
-│   └── store.py                  # SQLite DB, vector search, segment embeddings
+│   └── store.py                  # Supabase client, pgvector search, segment embeddings
 ├── curate/
 │   ├── search.py                 # Hybrid search (Twelve Labs/CLIP + metadata + RRF)
 │   └── director.py               # Claude AI director → EditDecisionList
@@ -87,11 +87,23 @@ video-composer/
 │   ├── package.json
 │   └── vite.config.ts            # Proxy /api → FastAPI
 ├── scripts/
-│   └── demo_search.py            # Shows full search pipeline input/output
+│   ├── demo_search.py            # Shows full search pipeline input/output
+│   ├── validate_index.py         # Runtime validation of index pipeline
+│   ├── validate_curation.py      # Runtime validation of curation layer (real CLIP + Supabase)
+│   └── validate_assembly.py      # Runtime validation of assembly pipeline (real renders)
 ├── uploads/                      # Uploaded media files (gitignored)
 ├── output/                       # Generated videos (gitignored)
 ├── .thumbnails/                  # Cached thumbnails (gitignored)
-├── tests/                        # 162 pytest tests
+├── tests/                        # 163 pytest tests (8 test files)
+│   ├── conftest.py               # Shared fixtures (temp DB, media items)
+│   ├── test_index.py             # Indexing pipeline tests (33 tests)
+│   ├── test_assemble.py          # Assembly/render tests (40 tests)
+│   ├── test_curate.py            # Search & director tests (25 tests)
+│   ├── test_edge_cases.py        # Edge case coverage (30 tests)
+│   ├── test_management.py        # Media management tests (16 tests)
+│   ├── test_keyframes.py         # Keyframe embedding tests (7 tests)
+│   ├── test_integration.py       # End-to-end pipeline tests (5 tests)
+│   └── test_cli.py               # CLI command tests (6 tests)
 ├── .env                          # API keys (gitignored)
 ├── requirements.txt
 ├── pytest.ini
@@ -137,19 +149,19 @@ The system uses **Twelve Labs Marengo** as the primary embedding engine with **C
 
 ### Upload Flow
 
-1. File saved to `uploads/`, media record inserted into SQLite **immediately** (with metadata, no embedding yet)
+1. File saved to `uploads/`, media record upserted into Supabase **immediately** (with metadata, no embedding yet)
 2. Library grid updates instantly — no page reload needed
 3. Background thread starts embedding computation:
    - Twelve Labs Marengo API call (~3-5s for images, ~10-30s for videos depending on length)
    - Falls back to local CLIP if Twelve Labs fails
-4. Embedding (1024 floats × 4 bytes = 4KB BLOB) written to the media record in SQLite
+4. Embedding written to the appropriate pgvector column (`embedding` for 1024-d Twelve Labs, `clip_embedding` for 512-d CLIP)
 5. Dashboard "With Embeddings" counter updates automatically via 5s polling
 
 ### Search Flow
 
 1. **Query embedding**: text query → Twelve Labs `embed_text()` → 1024-d vector (~200ms)
-2. **Vector search**: load all stored embeddings from SQLite, compute cosine similarity (dot product of normalized vectors), rank by score
-3. **Metadata search**: text-match against descriptions, labels, albums
+2. **Vector search**: pgvector RPC (`match_media` or `match_media_clip`) computes cosine distance server-side; falls back to in-memory similarity if RPC fails
+3. **Metadata search**: text-match against descriptions, labels, persons via Postgres ilike
 4. **RRF merge**: Reciprocal Rank Fusion combines both ranked lists — items in both get boosted
 5. **Response**: ranked results with `relevance_score`, media metadata, no raw embeddings
 
@@ -161,13 +173,12 @@ Input:  POST /api/search  {"query": "outdoor scenery", "limit": 5}
 Step 1 — Embed query:
   "outdoor scenery" → Marengo → [-0.00021, -0.03174, -0.00311, ...] (1024 floats)
 
-Step 2 — Load stored embeddings:
-  SELECT uuid, embedding FROM media WHERE embedding IS NOT NULL
-  → deserialize BLOBs → matrix shape (N, 1024)
+Step 2 — pgvector cosine search (server-side via RPC):
+  SELECT * FROM match_media(query_embedding, match_limit)
+  → pgvector <=> operator computes cosine distance
 
-Step 3 — Cosine similarity:
-  score = query_vec · stored_vec  (dot product, range -1.0 to 1.0)
-  aee1cf7c...  cosine_similarity = 0.2996
+Step 3 — Results ranked by similarity:
+  aee1cf7c...  similarity = 0.2996
 
 Step 4 — Hybrid merge (RRF):
   Vector rank + metadata rank → fused score
@@ -186,7 +197,7 @@ Output:
 }
 ```
 
-### Storage Schema (SQLite)
+### Storage Schema (Supabase / Postgres + pgvector)
 
 ```sql
 -- Main media table
@@ -195,12 +206,14 @@ media (
   path TEXT,                    -- local file path in uploads/
   media_type TEXT,              -- "photo" or "video"
   date TEXT,                    -- ISO 8601
+  lat REAL, lon REAL,           -- GPS coordinates (optional)
   width INTEGER, height INTEGER,
   duration REAL,                -- seconds (videos only)
-  embedding BLOB,               -- 1024 × float32 = 4096 bytes (or 512 × float32 for CLIP)
-  description TEXT,             -- JSON from Claude Vision
+  embedding vector(1024),       -- Twelve Labs Marengo (pgvector)
+  clip_embedding vector(512),   -- CLIP ViT-B-32 fallback (pgvector)
+  description JSONB,            -- structured data from Claude Vision
   quality_score REAL,
-  albums TEXT, labels TEXT, persons TEXT,  -- JSON arrays
+  albums JSONB, labels JSONB, persons JSONB,  -- JSON arrays
   indexed_at TEXT
 )
 
@@ -209,8 +222,13 @@ keyframe_embeddings (
   media_uuid TEXT,
   keyframe_index INTEGER,
   timestamp_sec REAL,           -- segment start time
-  embedding BLOB                -- 1024 × float32
+  embedding vector(1024)        -- Twelve Labs Marengo (pgvector)
 )
+
+-- pgvector RPC functions for cosine similarity search
+-- match_media(query_embedding, match_limit)       → search 1024-d embeddings
+-- match_media_clip(query_embedding, match_limit)   → search 512-d embeddings
+-- match_keyframes(query_embedding, match_limit)    → search keyframe embeddings
 ```
 
 ## API Endpoints
@@ -275,6 +293,8 @@ python main.py delete --all --yes
    ```
    ANTHROPIC_API_KEY=sk-ant-...
    TWELVELABS_API_KEY=tlk_...
+   SUPABASE_URL=https://xxx.supabase.co
+   SUPABASE_SERVICE_ROLE_KEY=eyJ...
    ```
 4. **Python deps**: `pip install -r requirements.txt`
 5. **Frontend deps**: `cd frontend && npm install`
@@ -282,18 +302,23 @@ python main.py delete --all --yes
 ## Testing
 
 ```bash
-make test              # 162 tests, all passing
+make test              # 163 tests, all passing
 make test-fast         # skip slow embedding tests
 make test-integration  # end-to-end pipeline tests
 make lint              # compile-check all source files
+
+# Runtime validation scripts (use real embeddings + Supabase, no mocks)
+python scripts/validate_index.py      # index pipeline round-trip
+python scripts/validate_curation.py   # search + CLI with real CLIP embeddings
+python scripts/validate_assembly.py   # render real videos, verify outputs
 ```
 
 ## Key Design Decisions
 
 - **Twelve Labs Marengo over CLIP**: CLIP (2021) is image-only, 512-d, no audio, no temporal understanding. Marengo produces 1024-d multimodal embeddings that jointly capture visual, audio, and temporal information. ~15% better video retrieval accuracy on benchmarks.
 - **Graceful fallback**: If `TWELVELABS_API_KEY` is not set, the system automatically uses local CLIP. No code changes needed. If Twelve Labs fails mid-upload, that file falls back to CLIP silently.
-- **Immediate insert, background embed**: Upload endpoint inserts the media record into SQLite immediately (so the UI updates instantly), then computes embeddings in a background thread. This avoids the UI feeling stuck while waiting for API calls.
-- **Dimension-aware search**: `get_all_embeddings()` filters by `EMBEDDING_DIM` — only embeddings matching the active engine's dimension (1024 for Twelve Labs, 512 for CLIP) are used in search. Mixed-dimension embeddings from engine switches are silently excluded.
+- **Immediate insert, background embed**: Upload endpoint upserts the media record into Supabase immediately (so the UI updates instantly), then computes embeddings in a background thread. This avoids the UI feeling stuck while waiting for API calls.
+- **Separate embedding columns**: Twelve Labs (1024-d) and CLIP (512-d) embeddings are stored in distinct pgvector columns (`embedding` and `clip_embedding`), avoiding dimension conflicts when switching engines. `get_all_embeddings()` reads the column matching the active engine.
 - **File upload over Apple Photos**: The web UI uses direct file upload (drag & drop) instead of Apple Photos integration, avoiding the Full Disk Access permission requirement.
 - **EDL-based pipeline**: The AI director outputs a structured Edit Decision List. The assembly layer executes it. You can preview and tweak the plan before committing to a render.
 - **Background job architecture**: Indexing and video generation run in background threads with progress polling via `/api/jobs/{id}`.
@@ -301,14 +326,14 @@ make lint              # compile-check all source files
 
 ## Known Limitations
 
-- **Embedding dimension mismatch**: If you switch between Twelve Labs and CLIP (by adding/removing the API key), previously stored embeddings with the old dimension won't appear in search results. Re-upload or re-embed affected files.
 - **In-memory job tracking**: Background jobs are stored in a Python dict — they're lost on server restart. No persistent job history.
-- **Brute-force vector search**: All embeddings loaded into memory for cosine similarity. Works fine for thousands of items but won't scale to millions without a proper vector index (pgvector, FAISS, etc).
 - **No auth**: Single-user local tool. No authentication or multi-tenancy.
+- **pgvector RPC fallback**: If the Supabase RPC functions (`match_media`, etc.) fail, search falls back to loading all embeddings into Python and computing cosine similarity in-memory.
 
 ## Next Steps
 
-- **Supabase migration** — replace SQLite with Supabase (Postgres + pgvector) for persistent storage, vector search at scale, and file storage via Supabase Storage
+- **Mobile testing** — no automated mobile/responsive tests yet; responsive design is CSS-only via Tailwind breakpoints
+- **Frontend unit tests** — no React component tests (no Jest/Vitest/Playwright); only backend pytest coverage
 - **Beat-synced editing** — music is overlaid but cuts aren't synced to beats (needs librosa)
 - **More themes** — user-defined or AI-suggested themes
 - **Subtitle/caption support** — text overlays on individual clips

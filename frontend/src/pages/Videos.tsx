@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchVideos, deleteVideo, videoThumbnailUrl } from '../api'
 import { Film, Play, Clock, HardDrive, Loader2, Download, Trash2, X, Clapperboard } from 'lucide-react'
 import { useState } from 'react'
+import { useToast } from '../components/Toast'
 
 function formatTitle(filename: string): string {
   return filename.replace(/\.mp4$/i, '').replace(/_/g, ' ')
@@ -20,23 +21,27 @@ function formatDate(iso: string): string {
 
 export default function Videos() {
   const queryClient = useQueryClient()
+  const toast = useToast()
   const { data, isLoading } = useQuery({
     queryKey: ['videos'],
     queryFn: fetchVideos,
   })
   const [playing, setPlaying] = useState<string | null>(null)
   const [playingFilename, setPlayingFilename] = useState<string | null>(null)
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null)
 
   const deleteMut = useMutation({
     mutationFn: deleteVideo,
     onSuccess: (_data, filename) => {
       queryClient.invalidateQueries({ queryKey: ['videos'] })
+      toast('Video deleted', 'success')
       // If the deleted video was playing, stop playback
       if (playingFilename === filename) {
         setPlaying(null)
         setPlayingFilename(null)
       }
     },
+    onError: () => toast('Failed to delete video', 'error'),
   })
 
   const videos = data?.videos || []
@@ -47,9 +52,7 @@ export default function Videos() {
   }
 
   const handleDelete = (filename: string) => {
-    if (window.confirm(`Delete "${formatTitle(filename)}"? This cannot be undone.`)) {
-      deleteMut.mutate(filename)
-    }
+    setConfirmingDelete(filename)
   }
 
   return (
@@ -184,14 +187,32 @@ export default function Videos() {
                       <Download className="w-3.5 h-3.5" />
                       Download
                     </a>
-                    <button
-                      onClick={() => handleDelete(v.filename)}
-                      disabled={deleteMut.isPending}
-                      className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
-                      title="Delete video"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {confirmingDelete === v.filename ? (
+                      <>
+                        <button
+                          onClick={() => { deleteMut.mutate(v.filename); setConfirmingDelete(null) }}
+                          disabled={deleteMut.isPending}
+                          className="px-2 py-1.5 text-xs font-medium rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-colors disabled:opacity-50"
+                        >
+                          Delete
+                        </button>
+                        <button
+                          onClick={() => setConfirmingDelete(null)}
+                          className="px-2 py-1.5 text-xs font-medium rounded-lg text-zinc-500 hover:text-zinc-300 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => handleDelete(v.filename)}
+                        disabled={deleteMut.isPending}
+                        className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                        title="Delete video"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

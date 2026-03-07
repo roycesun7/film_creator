@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
@@ -8,8 +8,9 @@ import {
 import {
   Sparkles, Loader2, Clock, Music, Film,
   Clapperboard, ChevronDown, ChevronUp, Eye, X, ArrowUp,
-  ArrowDown, Upload, Filter
+  ArrowDown, Upload, Filter, Download, RotateCcw
 } from 'lucide-react'
+import { useToast } from '../components/Toast'
 
 const THEMES = [
   { value: 'minimal', label: 'Minimal', desc: 'Clean white text, crossfade, Ken Burns' },
@@ -97,6 +98,7 @@ function ShotCard({ shot, index, total, onMoveUp, onMoveDown, onRemove }: ShotCa
 }
 
 export default function Studio() {
+  const toast = useToast()
   const [searchParams] = useSearchParams()
   const [prompt, setPrompt] = useState('')
   const [duration, setDuration] = useState(60)
@@ -105,6 +107,7 @@ export default function Studio() {
   const [edlMeta, setEdlMeta] = useState<Omit<EDLResponse, 'shots'> | null>(null)
   const [generatingJobId, setGeneratingJobId] = useState<string | null>(null)
   const [edlModified, setEdlModified] = useState(false)
+  const [selectedMediaUuids, setSelectedMediaUuids] = useState<string[]>([])
 
   // Music state
   const [musicPath, setMusicPath] = useState<string | null>(null)
@@ -118,12 +121,18 @@ export default function Studio() {
   const [minQuality, setMinQuality] = useState<number | ''>('')
   const [numCandidates, setNumCandidates] = useState(30)
 
-  // Pre-fill prompt if selectedUuids are in query params
+  // Pre-fill prompt and selected UUIDs from query params
   useEffect(() => {
-    const uuids = searchParams.get('selectedUuids')
+    const uuids = searchParams.get('uuids') || searchParams.get('media')
+    const searchPrompt = searchParams.get('prompt')
     if (uuids) {
-      const count = uuids.split(',').length
-      setPrompt(prev => prev || `Create a highlight video using the ${count} selected clip${count > 1 ? 's' : ''} from my library`)
+      const uuidList = uuids.split(',').filter(Boolean)
+      setSelectedMediaUuids(uuidList)
+      if (!prompt && searchPrompt) {
+        setPrompt(decodeURIComponent(searchPrompt))
+      } else if (!prompt) {
+        setPrompt(`Create a highlight video using ${uuidList.length} selected clip${uuidList.length > 1 ? 's' : ''} from my library`)
+      }
     }
   }, [searchParams])
 
@@ -146,6 +155,7 @@ export default function Studio() {
       persons: parseList(personsFilter),
       min_quality: minQuality !== '' ? minQuality : undefined,
       num_candidates: numCandidates,
+      uuids: selectedMediaUuids.length > 0 ? selectedMediaUuids : undefined,
     }),
     onSuccess: (data) => {
       setShots(data.shots)
@@ -157,6 +167,7 @@ export default function Studio() {
       })
       setEdlModified(false)
     },
+    onError: (err) => toast(err instanceof Error ? err.message : 'Preview failed', 'error'),
   })
 
   const generateMut = useMutation({
@@ -186,9 +197,11 @@ export default function Studio() {
         persons: parseList(personsFilter),
         min_quality: minQuality !== '' ? minQuality : undefined,
         num_candidates: numCandidates,
+        uuids: selectedMediaUuids.length > 0 ? selectedMediaUuids : undefined,
       })
     },
     onSuccess: (data) => setGeneratingJobId(data.job_id),
+    onError: (err) => toast(err instanceof Error ? err.message : 'Generation failed', 'error'),
   })
 
   const { data: job } = useQuery({
@@ -200,6 +213,18 @@ export default function Studio() {
       return j && (j.status === 'queued' || j.status === 'running') ? 2000 : false
     },
   })
+
+  const prevJobStatus = useRef(job?.status)
+  useEffect(() => {
+    const prev = prevJobStatus.current
+    prevJobStatus.current = job?.status
+    if (prev === job?.status) return
+    if (job?.status === 'completed') {
+      toast('Video rendered successfully!', 'success')
+    } else if (job?.status === 'failed') {
+      toast('Render failed: ' + (job?.message || 'Unknown error'), 'error')
+    }
+  }, [job?.status, job?.message, toast])
 
   const handlePreview = (e: React.FormEvent) => {
     e.preventDefault()
@@ -220,8 +245,10 @@ export default function Studio() {
       const result = await uploadMusic(file)
       setMusicPath(result.path)
       setMusicFilename(result.filename)
+      toast('Music uploaded', 'success')
     } catch (err) {
       console.error('Music upload failed:', err)
+      toast('Music upload failed', 'error')
     } finally {
       setMusicUploading(false)
     }
@@ -271,6 +298,19 @@ export default function Studio() {
             rows={3}
             className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none"
           />
+          {selectedMediaUuids.length > 0 && (
+            <div className="flex items-center gap-2 text-xs text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded-lg px-3 py-2">
+              <Film className="w-3.5 h-3.5" />
+              <span>{selectedMediaUuids.length} media item{selectedMediaUuids.length !== 1 ? 's' : ''} pre-selected</span>
+              <button
+                type="button"
+                onClick={() => setSelectedMediaUuids([])}
+                className="ml-auto text-violet-400/60 hover:text-violet-300 transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex gap-4">
@@ -478,7 +518,30 @@ export default function Studio() {
           {/* Completed */}
           {isJobDone && job?.output_path && (
             <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-5">
-              <p className="text-emerald-300 font-medium mb-3">Video rendered successfully!</p>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-emerald-300 font-medium">Video rendered successfully!</p>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={job.output_path}
+                    download
+                    className="flex items-center gap-1.5 text-xs font-medium bg-zinc-700/60 text-zinc-300 hover:bg-zinc-700 px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" /> Download
+                  </a>
+                  <button
+                    onClick={() => {
+                      setGeneratingJobId(null)
+                      setShots([])
+                      setEdlMeta(null)
+                      setEdlModified(false)
+                      setPrompt('')
+                    }}
+                    className="flex items-center gap-1.5 text-xs font-medium bg-violet-600/20 text-violet-300 hover:bg-violet-600/30 px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" /> New Video
+                  </button>
+                </div>
+              </div>
               <video
                 src={job.output_path}
                 controls
@@ -492,6 +555,36 @@ export default function Studio() {
               <p className="text-red-300 text-sm">Render failed: {job?.message}</p>
             </div>
           )}
+
+          {/* Storyboard strip */}
+          <div className="bg-zinc-800/30 border border-zinc-700/40 rounded-xl p-4">
+            <p className="text-[11px] font-medium text-zinc-500 mb-3 uppercase tracking-wide">Storyboard</p>
+            <div className="flex gap-1 overflow-x-auto pb-2">
+              {shots.map((shot, i) => (
+                <div
+                  key={`strip-${shot.uuid}-${i}`}
+                  className="shrink-0 relative"
+                  style={{ width: `${Math.max(48, Math.min(120, shot.duration * 16))}px` }}
+                  title={`#${i + 1} ${shot.role} — ${shot.duration.toFixed(1)}s`}
+                >
+                  <div className="aspect-[16/10] rounded overflow-hidden bg-zinc-800 border border-zinc-700/50">
+                    <img
+                      src={thumbnailUrl(shot.uuid)}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                    />
+                  </div>
+                  <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent px-1 py-0.5 rounded-b">
+                    <span className="text-[8px] text-zinc-300 font-medium">{shot.duration.toFixed(1)}s</span>
+                  </div>
+                  <div className={`absolute top-0.5 left-0.5 text-[7px] font-bold uppercase px-1 rounded ${roleColors[shot.role] || 'bg-zinc-700 text-zinc-300'}`}>
+                    {shot.role.slice(0, 3)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
 
           {/* Shot list */}
           <div>

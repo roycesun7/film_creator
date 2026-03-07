@@ -1,10 +1,10 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { searchMedia, thumbnailUrl, videoUrl, type MediaItem } from '../api'
 import {
   Search, Loader2, Image, Film, Zap, Sparkles, Clapperboard,
-  CheckSquare, Square, X, Clock, Tag, Users
+  CheckSquare, Square, X, Clock, Tag, Users, AlertCircle
 } from 'lucide-react'
 
 type ResultItem = MediaItem & { relevance_score?: number }
@@ -17,6 +17,19 @@ export default function SearchPage() {
   const [searched, setSearched] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [detailItem, setDetailItem] = useState<ResultItem | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  // Auto-focus search input on mount
+  useEffect(() => { searchInputRef.current?.focus() }, [])
+
+  // Close detail modal on Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && detailItem) setDetailItem(null)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [detailItem])
 
   const searchMut = useMutation({
     mutationFn: () => searchMedia({ query, fast, limit: 30 }),
@@ -59,6 +72,7 @@ export default function SearchPage() {
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
           <input
+            ref={searchInputRef}
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -105,6 +119,20 @@ export default function SearchPage() {
           <span className="ml-3 text-sm text-zinc-400">
             {fast ? 'Searching descriptions...' : 'Computing embeddings & searching...'}
           </span>
+        </div>
+      )}
+
+      {searchMut.isError && (
+        <div className="text-center py-12">
+          <AlertCircle className="w-8 h-8 text-red-400 mx-auto mb-3" />
+          <p className="text-sm text-red-300 mb-1">Search failed</p>
+          <p className="text-xs text-zinc-500">{searchMut.error instanceof Error ? searchMut.error.message : 'An error occurred'}</p>
+          <button
+            onClick={() => searchMut.mutate()}
+            className="mt-3 text-xs text-violet-400 hover:text-violet-300 underline"
+          >
+            Try again
+          </button>
         </div>
       )}
 

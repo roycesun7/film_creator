@@ -1,11 +1,12 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import { useToast } from '../components/Toast'
 import { fetchMedia, uploadFiles, deleteMediaItem, thumbnailUrl, videoUrl, type MediaItem } from '../api'
 import {
   Image, Film, ChevronLeft, ChevronRight,
-  Loader2, Upload, X, Clock, Tag, Users, Plus, CheckCircle2,
-  Trash2, CheckSquare, Square, MousePointerClick, XCircle, Clapperboard, Zap, MessageSquare
+  Loader2, Upload, X, Clock, Tag, Users, Plus,
+  Trash2, CheckSquare, Square, MousePointerClick, XCircle, Clapperboard, Zap, MessageSquare, AlertCircle
 } from 'lucide-react'
 
 function MediaCard({
@@ -249,11 +250,11 @@ function MediaDetail({
 export default function Library() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const toast = useToast()
   const [offset, setOffset] = useState(0)
   const [sort, setSort] = useState('date')
   const [selected, setSelected] = useState<MediaItem | null>(null)
   const [dragging, setDragging] = useState(false)
-  const [uploadResult, setUploadResult] = useState<{ count: number; visible: boolean } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const limit = 24
 
@@ -261,7 +262,16 @@ export default function Library() {
   const [selectMode, setSelectMode] = useState(false)
   const [selectedUuids, setSelectedUuids] = useState<Set<string>>(new Set())
 
-  const { data, isLoading } = useQuery({
+  // Close modal on Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selected) setSelected(null)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selected])
+
+  const { data, isLoading, error: mediaError, refetch: refetchMedia } = useQuery({
     queryKey: ['media', offset, sort],
     queryFn: () => fetchMedia({ limit, offset, sort }),
   })
@@ -269,20 +279,22 @@ export default function Library() {
   const uploadMut = useMutation({
     mutationFn: (files: FileList | File[]) => uploadFiles(files, autoDescribe),
     onSuccess: (data) => {
-      setUploadResult({ count: data.uploaded, visible: true })
+      toast(`${data.uploaded} file${data.uploaded !== 1 ? 's' : ''} uploaded. Embedding in background...`, 'success')
       queryClient.invalidateQueries({ queryKey: ['media'] })
       queryClient.invalidateQueries({ queryKey: ['stats'] })
-      setTimeout(() => setUploadResult(null), 4000)
     },
+    onError: (err) => toast(err instanceof Error ? err.message : 'Upload failed', 'error'),
   })
 
   const deleteMut = useMutation({
     mutationFn: (uuid: string) => deleteMediaItem(uuid),
     onSuccess: () => {
       setSelected(null)
+      toast('Media deleted', 'success')
       queryClient.invalidateQueries({ queryKey: ['media'] })
       queryClient.invalidateQueries({ queryKey: ['stats'] })
     },
+    onError: (err) => toast(err instanceof Error ? err.message : 'Delete failed', 'error'),
   })
 
   const bulkDeleteMut = useMutation({
@@ -292,9 +304,11 @@ export default function Library() {
     onSuccess: () => {
       setSelectedUuids(new Set())
       setSelectMode(false)
+      toast('Selected items deleted', 'success')
       queryClient.invalidateQueries({ queryKey: ['media'] })
       queryClient.invalidateQueries({ queryKey: ['stats'] })
     },
+    onError: (err) => toast(err instanceof Error ? err.message : 'Bulk delete failed', 'error'),
   })
 
   const handleFiles = useCallback((files: FileList | File[]) => {
@@ -425,18 +439,21 @@ export default function Library() {
         </div>
       </div>
 
-      {uploadResult?.visible && (
-        <div className="mb-6 flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-3">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-          <span className="text-sm text-emerald-300">
-            {uploadResult.count} file{uploadResult.count !== 1 ? 's' : ''} uploaded successfully. Generating embeddings in background...
-          </span>
-        </div>
-      )}
-
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-zinc-500" />
+        </div>
+      ) : mediaError ? (
+        <div className="text-center py-12">
+          <AlertCircle className="w-8 h-8 text-red-400 mx-auto mb-3" />
+          <p className="text-sm text-red-300 mb-1">Failed to load media</p>
+          <p className="text-xs text-zinc-500">{mediaError instanceof Error ? mediaError.message : 'An error occurred'}</p>
+          <button
+            onClick={() => refetchMedia()}
+            className="mt-3 text-xs text-violet-400 hover:text-violet-300 underline"
+          >
+            Retry
+          </button>
         </div>
       ) : items.length === 0 ? (
         <button

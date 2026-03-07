@@ -169,6 +169,7 @@ export interface PreviewRequest {
   persons?: string[]
   min_quality?: number
   num_candidates?: number
+  uuids?: string[]
 }
 
 export interface GenerateRequest {
@@ -180,6 +181,7 @@ export interface GenerateRequest {
   persons?: string[]
   min_quality?: number
   num_candidates?: number
+  uuids?: string[]
 }
 
 export interface EDLResponse {

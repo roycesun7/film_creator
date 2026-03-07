@@ -128,6 +128,7 @@ class PreviewRequest(BaseModel):
     persons: Optional[list[str]] = None
     min_quality: Optional[float] = None
     num_candidates: int = 30
+    uuids: Optional[list[str]] = None
 
 
 class GenerateRequest(BaseModel):
@@ -139,6 +140,7 @@ class GenerateRequest(BaseModel):
     persons: Optional[list[str]] = None
     min_quality: Optional[float] = None
     num_candidates: int = 30
+    uuids: Optional[list[str]] = None
 
 
 class CustomShotInput(BaseModel):
@@ -718,13 +720,20 @@ def preview_video(req: PreviewRequest):
     from curate.director import create_edit_decision_list
     from dataclasses import asdict
 
-    candidates = hybrid_search(
-        query=req.prompt,
-        albums=req.albums,
-        persons=req.persons,
-        min_quality=req.min_quality,
-        limit=req.num_candidates,
-    )
+    if req.uuids:
+        candidates = get_media_by_uuids(req.uuids)
+        # Strip embeddings from candidates
+        for c in candidates:
+            c.pop("embedding", None)
+            c.pop("clip_embedding", None)
+    else:
+        candidates = hybrid_search(
+            query=req.prompt,
+            albums=req.albums,
+            persons=req.persons,
+            min_quality=req.min_quality,
+            limit=req.num_candidates,
+        )
 
     if not candidates:
         raise HTTPException(status_code=404, detail="No matching media found. Index some media first.")
@@ -769,13 +778,19 @@ def _run_generate_job(job_id: str, req: GenerateRequest):
 
         _update_job(job_id, status="running", message="Searching for matching clips...")
 
-        candidates = hybrid_search(
-            query=req.prompt,
-            albums=req.albums,
-            persons=req.persons,
-            min_quality=req.min_quality,
-            limit=req.num_candidates,
-        )
+        if req.uuids:
+            candidates = get_media_by_uuids(req.uuids)
+            for c in candidates:
+                c.pop("embedding", None)
+                c.pop("clip_embedding", None)
+        else:
+            candidates = hybrid_search(
+                query=req.prompt,
+                albums=req.albums,
+                persons=req.persons,
+                min_quality=req.min_quality,
+                limit=req.num_candidates,
+            )
 
         if not candidates:
             _update_job(job_id, status="failed", message="No matching media found")

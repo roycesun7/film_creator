@@ -55,7 +55,7 @@ function JobBadge({ job }: { job: Job }) {
 
 export default function Dashboard() {
   const navigate = useNavigate()
-  const { data: stats, isLoading, error } = useQuery({
+  const { data: stats, isLoading, error, refetch } = useQuery({
     queryKey: ['stats'],
     queryFn: fetchStats,
     refetchInterval: 5000,
@@ -84,6 +84,12 @@ export default function Dashboard() {
         <AlertCircle className="w-8 h-8 text-red-400" />
         <p className="text-sm">Failed to load stats. Is the API server running?</p>
         <code className="text-xs bg-zinc-800 px-3 py-1.5 rounded">uvicorn api:app --reload</code>
+        <button
+          onClick={() => refetch()}
+          className="mt-3 text-xs text-violet-400 hover:text-violet-300 underline"
+        >
+          Retry
+        </button>
       </div>
     )
   }

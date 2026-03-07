@@ -90,11 +90,14 @@ function TimelineClipComponent({
       setDragType(dragRef.current.type)
     }
     if (dragRef.current.type === 'move' && onDragMove) {
-      const newPos = Math.max(0, dragRef.current.startPos + dx / pixelsPerSecond)
-      onDragMove(Math.round(newPos * 10) / 10)
+      const rawPos = Math.max(0, dragRef.current.startPos + dx / pixelsPerSecond)
+      // Snap to 0.25s grid
+      const snapped = Math.round(rawPos * 4) / 4
+      onDragMove(snapped)
     } else if (dragRef.current.type === 'resize' && onDragResize) {
-      const newDur = Math.max(0.5, dragRef.current.startDur + dx / pixelsPerSecond)
-      onDragResize(Math.round(newDur * 10) / 10)
+      const rawDur = Math.max(0.5, dragRef.current.startDur + dx / pixelsPerSecond)
+      const snapped = Math.round(rawDur * 4) / 4
+      onDragResize(snapped)
     }
   }, [pixelsPerSecond, onDragMove, onDragResize, isDragging])
 
@@ -177,89 +180,80 @@ function TimelineClipComponent({
   )
 }
 
-function TrackLane({
+function TrackHeader({
   track,
-  pixelsPerSecond,
-  timelineDuration,
-  selectedClipId,
-  onSelectClip,
   onToggleMute,
   onToggleLock,
+}: {
+  track: TimelineTrack
+  onToggleMute: () => void
+  onToggleLock: () => void
+}) {
+  const TrackIcon = TRACK_TYPE_ICONS[track.type] || Film
+  return (
+    <div className="w-40 shrink-0 bg-zinc-900/80 border-r border-zinc-800 p-2 flex flex-col justify-center border-b border-b-zinc-800/80" style={{ height: `${TRACK_HEIGHT}px` }}>
+      <div className="flex items-center gap-1.5 mb-1">
+        <TrackIcon className="w-3.5 h-3.5 text-zinc-500" />
+        <span className="text-[11px] font-medium text-zinc-300 truncate">{track.name}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={onToggleMute}
+          className={`p-0.5 rounded transition-colors ${track.muted ? 'text-red-400' : 'text-zinc-600 hover:text-zinc-400'}`}
+          title={track.muted ? 'Unmute' : 'Mute'}
+        >
+          {track.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+        </button>
+        <button
+          onClick={onToggleLock}
+          className={`p-0.5 rounded transition-colors ${track.locked ? 'text-amber-400' : 'text-zinc-600 hover:text-zinc-400'}`}
+          title={track.locked ? 'Unlock' : 'Lock'}
+        >
+          {track.locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function TrackClips({
+  track,
+  pixelsPerSecond,
+  timelineWidth,
+  selectedClipId,
+  onSelectClip,
   onMoveClip,
   onResizeClip,
 }: {
   track: TimelineTrack
   pixelsPerSecond: number
-  timelineDuration: number
+  timelineWidth: number
   selectedClipId: string | null
   onSelectClip: (id: string) => void
-  onToggleMute: () => void
-  onToggleLock: () => void
   onMoveClip: (id: string, newPosition: number) => void
   onResizeClip: (id: string, newDuration: number) => void
 }) {
-  const TrackIcon = TRACK_TYPE_ICONS[track.type] || Film
-  const timelineWidth = Math.max(800, timelineDuration * pixelsPerSecond + 100)
-
   const allItems = track.type === 'text'
     ? track.text_elements.map(te => ({ ...te, _isText: true as const }))
     : track.clips.map(c => ({ ...c, _isText: false as const }))
 
   return (
-    <div className="flex border-b border-zinc-800/80">
-      {/* Track header */}
-      <div className="w-40 shrink-0 bg-zinc-900/80 border-r border-zinc-800 p-2 flex flex-col justify-center">
-        <div className="flex items-center gap-1.5 mb-1">
-          <TrackIcon className="w-3.5 h-3.5 text-zinc-500" />
-          <span className="text-[11px] font-medium text-zinc-300 truncate">{track.name}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={onToggleMute}
-            className={`p-0.5 rounded transition-colors ${track.muted ? 'text-red-400' : 'text-zinc-600 hover:text-zinc-400'}`}
-            title={track.muted ? 'Unmute' : 'Mute'}
-          >
-            {track.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
-          </button>
-          <button
-            onClick={onToggleLock}
-            className={`p-0.5 rounded transition-colors ${track.locked ? 'text-amber-400' : 'text-zinc-600 hover:text-zinc-400'}`}
-            title={track.locked ? 'Unlock' : 'Lock'}
-          >
-            {track.locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-          </button>
-        </div>
-      </div>
-
-      {/* Track clips area */}
-      <div className="flex-1 overflow-x-auto">
-        <div
-          className="relative bg-zinc-900/40"
-          style={{ width: `${timelineWidth}px`, height: `${TRACK_HEIGHT}px` }}
-        >
-          {/* Grid lines */}
-          {Array.from({ length: Math.ceil(timelineDuration) + 1 }).map((_, i) => (
-            <div
-              key={i}
-              className="absolute top-0 bottom-0 w-px bg-zinc-800/50"
-              style={{ left: `${i * pixelsPerSecond}px` }}
-            />
-          ))}
-
-          {allItems.map((item) => (
-            <TimelineClipComponent
-              key={item.id}
-              clip={item as any}
-              trackType={track.type}
-              pixelsPerSecond={pixelsPerSecond}
-              onSelect={() => onSelectClip(item.id)}
-              isSelected={selectedClipId === item.id}
-              onDragMove={track.locked ? undefined : (pos) => onMoveClip(item.id, pos)}
-              onDragResize={track.locked ? undefined : (dur) => onResizeClip(item.id, dur)}
-            />
-          ))}
-        </div>
-      </div>
+    <div
+      className="relative bg-zinc-900/40 border-b border-zinc-800/80"
+      style={{ width: `${timelineWidth}px`, height: `${TRACK_HEIGHT}px` }}
+    >
+      {allItems.map((item) => (
+        <TimelineClipComponent
+          key={item.id}
+          clip={item as any}
+          trackType={track.type}
+          pixelsPerSecond={pixelsPerSecond}
+          onSelect={() => onSelectClip(item.id)}
+          isSelected={selectedClipId === item.id}
+          onDragMove={track.locked ? undefined : (pos) => onMoveClip(item.id, pos)}
+          onDragResize={track.locked ? undefined : (dur) => onResizeClip(item.id, dur)}
+        />
+      ))}
     </div>
   )
 }
@@ -713,6 +707,7 @@ export default function ProjectEditor() {
   const [mediaBrowserOpen, setMediaBrowserOpen] = useState(false)
   const [undoStack, setUndoStack] = useState<ProjectData[]>([])
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [playheadPos, setPlayheadPos] = useState(0)
   const timelineScrollRef = useRef<HTMLDivElement>(null)
 
   const pixelsPerSecond = PIXELS_PER_SECOND * zoom
@@ -1067,7 +1062,21 @@ export default function ProjectEditor() {
     return null
   }, [project, selectedTextId])
 
-  const timelineDuration = project?.timeline.duration || 0
+  // Auto-compute timeline duration from clip/text positions
+  const timelineDuration = useMemo(() => {
+    if (!project) return 0
+    let maxEnd = 0
+    for (const track of project.timeline.tracks) {
+      for (const c of track.clips) {
+        maxEnd = Math.max(maxEnd, c.position + c.duration)
+      }
+      for (const te of track.text_elements) {
+        maxEnd = Math.max(maxEnd, te.position + te.duration)
+      }
+    }
+    // Add a little padding and round up
+    return Math.max(maxEnd + 2, project.timeline.duration || 0)
+  }, [project])
   const videoTrack = project?.timeline.tracks.find(t => t.type === 'video')
   const clipCount = videoTrack?.clips.length || 0
   const isJobRunning = job && (job.status === 'queued' || job.status === 'running')
@@ -1352,6 +1361,10 @@ export default function ProjectEditor() {
             <span className="text-[10px] text-zinc-500 tabular-nums w-8">{Math.round(zoom * 100)}%</span>
             <div className="w-px h-4 bg-zinc-800 mx-1" />
             <span className="text-[10px] text-zinc-400 capitalize">{project.theme.replace('_', ' ')}</span>
+            <div className="w-px h-4 bg-zinc-800 mx-1" />
+            <span className="text-[10px] text-red-400/70 tabular-nums">
+              {Math.floor(playheadPos / 60)}:{String(Math.floor(playheadPos % 60)).padStart(2, '0')}.{String(Math.floor((playheadPos % 1) * 10)).padStart(1, '0')}
+            </span>
             {project.music_path && (
               <>
                 <div className="w-px h-4 bg-zinc-800 mx-1" />
@@ -1373,83 +1386,149 @@ export default function ProjectEditor() {
             )}
           </div>
 
-          {/* Time ruler */}
-          <div className="shrink-0 flex border-b border-zinc-800/80">
-            <div className="w-40 shrink-0 bg-zinc-900/80 border-r border-zinc-800" />
-            <div className="flex-1 overflow-x-auto">
-              <div
-                className="relative h-6 bg-zinc-900/60"
-                style={{ width: `${Math.max(800, timelineDuration * pixelsPerSecond + 100)}px` }}
-              >
-                {Array.from({ length: Math.ceil(timelineDuration) + 1 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="absolute top-0 bottom-0 flex flex-col items-center"
-                    style={{ left: `${i * pixelsPerSecond}px` }}
-                  >
-                    <div className="w-px h-2 bg-zinc-600" />
-                    {i % (zoom < 0.8 ? 5 : zoom < 1.5 ? 2 : 1) === 0 && (
-                      <span className="text-[8px] text-zinc-600 tabular-nums mt-0.5">
-                        {Math.floor(i / 60)}:{String(i % 60).padStart(2, '0')}
-                      </span>
+          {/* Timeline with synchronized scrolling */}
+          {(() => {
+            const timelineWidth = Math.max(800, timelineDuration * pixelsPerSecond + 100)
+            const hasContent = project.timeline.tracks.length > 0 && (clipCount > 0 || project.timeline.tracks.some(t => t.text_elements.length > 0))
+            const tickInterval = zoom < 0.8 ? 5 : zoom < 1.5 ? 2 : 1
+
+            if (!hasContent) {
+              return (
+                <div className="flex-1 flex flex-col items-center justify-center text-zinc-600 gap-4 px-8">
+                  <Layers className="w-12 h-12 opacity-20" />
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-zinc-400 mb-1">Empty Timeline</p>
+                    <p className="text-xs text-zinc-600 max-w-md">
+                      Write a creative brief and click "AI Arrange" to auto-generate a video, or open the Media Browser to manually add clips.
+                    </p>
+                  </div>
+                  <div className="flex gap-3 mt-2">
+                    <button
+                      onClick={() => setMediaBrowserOpen(true)}
+                      className="flex items-center gap-1.5 text-xs font-medium px-4 py-2 rounded-lg bg-violet-600/20 text-violet-300 hover:bg-violet-600/30 border border-violet-500/30 transition-colors"
+                    >
+                      <ImagePlus className="w-3.5 h-3.5" /> Open Media Browser
+                    </button>
+                    {project.prompt && (
+                      <button
+                        onClick={() => previewMut.mutate()}
+                        disabled={previewMut.isPending}
+                        className="flex items-center gap-1.5 text-xs font-medium px-4 py-2 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700 transition-colors"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" /> AI Arrange
+                      </button>
                     )}
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
+                  <p className="text-[10px] text-zinc-700 mt-1">Press <kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-500 text-[9px]">M</kbd> to toggle Media Browser</p>
+                </div>
+              )
+            }
 
-          {/* Tracks */}
-          <div className="flex-1 overflow-y-auto" ref={timelineScrollRef}>
-            {project.timeline.tracks.length === 0 || (videoTrack && clipCount === 0 && !project.timeline.tracks.some(t => t.text_elements.length > 0)) ? (
-              <div className="flex flex-col items-center justify-center h-full text-zinc-600 gap-4 px-8">
-                <Layers className="w-12 h-12 opacity-20" />
-                <div className="text-center">
-                  <p className="text-sm font-medium text-zinc-400 mb-1">Empty Timeline</p>
-                  <p className="text-xs text-zinc-600 max-w-md">
-                    Write a creative brief and click "AI Arrange" to auto-generate a video, or open the Media Browser to manually add clips.
-                  </p>
+            return (
+              <div className="flex-1 flex min-h-0">
+                {/* Fixed track headers column */}
+                <div className="w-40 shrink-0 flex flex-col">
+                  {/* Ruler spacer */}
+                  <div className="h-6 bg-zinc-900/80 border-r border-zinc-800 border-b border-b-zinc-800/80" />
+                  {/* Track headers */}
+                  <div className="flex-1 overflow-y-hidden">
+                    {project.timeline.tracks.map(track => (
+                      <TrackHeader
+                        key={track.id}
+                        track={track}
+                        onToggleMute={() => toggleTrackMute(track.id)}
+                        onToggleLock={() => toggleTrackLock(track.id)}
+                      />
+                    ))}
+                  </div>
                 </div>
-                <div className="flex gap-3 mt-2">
-                  <button
-                    onClick={() => setMediaBrowserOpen(true)}
-                    className="flex items-center gap-1.5 text-xs font-medium px-4 py-2 rounded-lg bg-violet-600/20 text-violet-300 hover:bg-violet-600/30 border border-violet-500/30 transition-colors"
-                  >
-                    <ImagePlus className="w-3.5 h-3.5" /> Open Media Browser
-                  </button>
-                  {project.prompt && (
-                    <button
-                      onClick={() => previewMut.mutate()}
-                      disabled={previewMut.isPending}
-                      className="flex items-center gap-1.5 text-xs font-medium px-4 py-2 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700 transition-colors"
+
+                {/* Scrollable timeline content (ruler + all track clips) */}
+                <div className="flex-1 overflow-auto min-w-0" ref={timelineScrollRef}>
+                  <div style={{ width: `${timelineWidth}px` }}>
+                    {/* Time ruler — click or drag to scrub */}
+                    <div
+                      className="relative h-6 bg-zinc-900/60 border-b border-zinc-800/80 sticky top-0 z-10 cursor-pointer"
+                      onPointerDown={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        const updatePos = (clientX: number) => {
+                          const x = clientX - rect.left
+                          setPlayheadPos(Math.max(0, Math.round(x / pixelsPerSecond * 4) / 4))
+                        }
+                        updatePos(e.clientX)
+                        e.currentTarget.setPointerCapture(e.pointerId)
+                        const el = e.currentTarget
+                        const onMove = (ev: PointerEvent) => updatePos(ev.clientX)
+                        const onUp = () => {
+                          el.removeEventListener('pointermove', onMove)
+                          el.removeEventListener('pointerup', onUp)
+                        }
+                        el.addEventListener('pointermove', onMove)
+                        el.addEventListener('pointerup', onUp)
+                      }}
                     >
-                      <Sparkles className="w-3.5 h-3.5" /> AI Arrange
-                    </button>
-                  )}
+                      {Array.from({ length: Math.ceil(timelineDuration) + 1 }).map((_, i) => (
+                        <div
+                          key={i}
+                          className="absolute top-0 bottom-0 flex flex-col items-center"
+                          style={{ left: `${i * pixelsPerSecond}px` }}
+                        >
+                          <div className="w-px h-2 bg-zinc-600" />
+                          {i % tickInterval === 0 && (
+                            <span className="text-[8px] text-zinc-600 tabular-nums mt-0.5">
+                              {Math.floor(i / 60)}:{String(i % 60).padStart(2, '0')}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                      {/* Playhead marker on ruler */}
+                      <div
+                        className="absolute top-0 bottom-0 z-20 pointer-events-none"
+                        style={{ left: `${playheadPos * pixelsPerSecond}px` }}
+                      >
+                        <div className="w-0 h-0 border-l-[5px] border-r-[5px] border-t-[6px] border-l-transparent border-r-transparent border-t-red-500 -translate-x-[5px]" />
+                      </div>
+                    </div>
+
+                    {/* Track clip areas + playhead line */}
+                    <div className="relative" style={{ minHeight: `${project.timeline.tracks.length * TRACK_HEIGHT}px` }}>
+                      {/* Grid lines spanning all tracks */}
+                      {Array.from({ length: Math.ceil(timelineDuration) + 1 }).map((_, i) => (
+                        <div
+                          key={i}
+                          className="absolute top-0 bottom-0 w-px bg-zinc-800/50"
+                          style={{ left: `${i * pixelsPerSecond}px` }}
+                        />
+                      ))}
+
+                      {/* Playhead line */}
+                      <div
+                        className="absolute top-0 bottom-0 w-px bg-red-500 z-20 pointer-events-none"
+                        style={{ left: `${playheadPos * pixelsPerSecond}px` }}
+                      />
+
+                      {project.timeline.tracks.map(track => (
+                        <TrackClips
+                          key={track.id}
+                          track={track}
+                          pixelsPerSecond={pixelsPerSecond}
+                          timelineWidth={timelineWidth}
+                          selectedClipId={selectedClipId || selectedTextId}
+                          onSelectClip={(id) => {
+                            const isText = track.text_elements.some(te => te.id === id)
+                            if (isText) handleSelectText(id)
+                            else handleSelectClip(id)
+                          }}
+                          onMoveClip={moveClip}
+                          onResizeClip={resizeClip}
+                        />
+                      ))}
+                    </div>
+                  </div>
                 </div>
-                <p className="text-[10px] text-zinc-700 mt-1">Press <kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-500 text-[9px]">M</kbd> to toggle Media Browser</p>
               </div>
-            ) : (
-              project.timeline.tracks.map(track => (
-                <TrackLane
-                  key={track.id}
-                  track={track}
-                  pixelsPerSecond={pixelsPerSecond}
-                  timelineDuration={timelineDuration}
-                  selectedClipId={selectedClipId || selectedTextId}
-                  onSelectClip={(id) => {
-                    const isText = track.text_elements.some(te => te.id === id)
-                    if (isText) handleSelectText(id)
-                    else handleSelectClip(id)
-                  }}
-                  onToggleMute={() => toggleTrackMute(track.id)}
-                  onToggleLock={() => toggleTrackLock(track.id)}
-                  onMoveClip={moveClip}
-                  onResizeClip={resizeClip}
-                />
-              ))
-            )}
-          </div>
+            )
+          })()}
 
           {/* Storyboard strip (below timeline) */}
           {clipCount > 0 && (

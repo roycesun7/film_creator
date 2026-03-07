@@ -23,16 +23,41 @@ function MediaCard({
   onToggleSelect: () => void
 }) {
   const [imgError, setImgError] = useState(false)
+  const [hovering, setHovering] = useState(false)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const isVideo = item.media_type === 'video'
+
+  useEffect(() => {
+    if (!isVideo || !videoRef.current) return
+    if (hovering) {
+      videoRef.current.play().catch(() => {})
+    } else {
+      videoRef.current.pause()
+      videoRef.current.currentTime = 0
+    }
+  }, [hovering, isVideo])
 
   return (
     <button
       onClick={selectMode ? onToggleSelect : onClick}
+      onMouseEnter={() => setHovering(true)}
+      onMouseLeave={() => setHovering(false)}
       className={`group relative aspect-square bg-zinc-800 rounded-lg overflow-hidden border transition-all ${
         isSelected
           ? 'border-violet-500 ring-2 ring-violet-500/40'
           : 'border-zinc-700/40 hover:border-violet-500/50 hover:ring-1 hover:ring-violet-500/30'
       }`}
     >
+      {isVideo && hovering && (
+        <video
+          ref={videoRef}
+          src={videoUrl(item.uuid)}
+          muted
+          loop
+          playsInline
+          className="absolute inset-0 w-full h-full object-cover z-[1]"
+        />
+      )}
       {!imgError ? (
         <img
           src={thumbnailUrl(item.uuid)}
@@ -43,7 +68,7 @@ function MediaCard({
         />
       ) : (
         <div className="w-full h-full flex items-center justify-center">
-          {item.media_type === 'video' ? (
+          {isVideo ? (
             <Film className="w-8 h-8 text-zinc-600" />
           ) : (
             <Image className="w-8 h-8 text-zinc-600" />

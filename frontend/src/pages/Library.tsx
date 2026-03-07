@@ -167,7 +167,7 @@ function MediaDetail({
           </div>
         </div>
         <div className="p-5">
-          <div className="aspect-video bg-black rounded-lg overflow-hidden mb-5">
+          <div className="aspect-video bg-black rounded-lg overflow-hidden mb-5 flex items-center justify-center">
             {isVideo ? (
               <video
                 src={videoUrl(item.uuid)}
@@ -181,6 +181,7 @@ function MediaDetail({
                 src={thumbnailUrl(item.uuid)}
                 alt=""
                 className="w-full h-full object-contain"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
               />
             )}
           </div>
@@ -404,12 +405,12 @@ export default function Library() {
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold">Library</h1>
           <p className="text-sm text-zinc-400 mt-1">{total} items indexed</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <div className="flex items-center bg-zinc-800 border border-zinc-700 rounded-lg overflow-hidden">
             {([['', 'All'], ['photo', 'Photos'], ['video', 'Videos']] as const).map(([value, label]) => (
               <button
@@ -485,7 +486,7 @@ export default function Library() {
       </div>
 
       {isLoading ? (
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="aspect-square bg-zinc-800 rounded-lg animate-pulse" />
           ))}
@@ -517,7 +518,7 @@ export default function Library() {
         </button>
       ) : (
         <>
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
             {items.map((item) => (
               <MediaCard
                 key={item.uuid}

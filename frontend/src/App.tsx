@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
-import { Film, LayoutDashboard, FolderOpen, Search, Clapperboard, Play } from 'lucide-react'
+import { Film, LayoutDashboard, FolderOpen, Search, Clapperboard, Play, Menu, X } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Library from './pages/Library'
 import SearchPage from './pages/SearchPage'
@@ -17,6 +17,7 @@ const navItems = [
 
 export default function App() {
   const navigate = useNavigate()
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   // Global keyboard shortcuts: Ctrl+1-5 for navigation
   useEffect(() => {
@@ -37,8 +38,51 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* Sidebar */}
-      <nav className="w-56 shrink-0 border-r border-zinc-800 bg-zinc-950 flex flex-col">
+      {/* Mobile header */}
+      <div className="md:hidden fixed top-0 left-0 right-0 z-50 bg-zinc-950 border-b border-zinc-800 flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Film className="w-5 h-5 text-violet-400" />
+          <span className="text-sm font-bold">Video Composer</span>
+        </div>
+        <button
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400"
+        >
+          {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+        </button>
+      </div>
+
+      {/* Mobile nav overlay */}
+      {mobileMenuOpen && (
+        <div className="md:hidden fixed inset-0 z-40 bg-black/60" onClick={() => setMobileMenuOpen(false)}>
+          <nav
+            className="absolute top-[52px] left-0 right-0 bg-zinc-950 border-b border-zinc-800 p-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {navItems.map(({ to, icon: Icon, label }) => (
+              <NavLink
+                key={to}
+                to={to}
+                end={to === '/'}
+                onClick={() => setMobileMenuOpen(false)}
+                className={({ isActive }) =>
+                  `flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                    isActive
+                      ? 'bg-violet-500/15 text-violet-300'
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
+                  }`
+                }
+              >
+                <Icon className="w-4 h-4" />
+                {label}
+              </NavLink>
+            ))}
+          </nav>
+        </div>
+      )}
+
+      {/* Desktop Sidebar */}
+      <nav className="w-56 shrink-0 border-r border-zinc-800 bg-zinc-950 hidden md:flex flex-col">
         <div className="flex items-center gap-2.5 px-5 py-5 border-b border-zinc-800">
           <Film className="w-6 h-6 text-violet-400" />
           <span className="text-base font-bold tracking-tight">Video Composer</span>
@@ -59,7 +103,7 @@ export default function App() {
             >
               <Icon className="w-4 h-4" />
               <span className="flex-1">{label}</span>
-              <kbd className="text-[9px] text-zinc-600 font-mono">⌘{shortcut}</kbd>
+              <kbd className="text-[9px] text-zinc-600 font-mono hidden lg:inline">⌘{shortcut}</kbd>
             </NavLink>
           ))}
         </div>
@@ -69,7 +113,7 @@ export default function App() {
       </nav>
 
       {/* Main content */}
-      <main className="flex-1 overflow-y-auto bg-zinc-900">
+      <main className="flex-1 overflow-y-auto bg-zinc-900 pt-[52px] md:pt-0">
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/library" element={<Library />} />

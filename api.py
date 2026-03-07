@@ -91,12 +91,14 @@ def _generate_thumbnail(original_path: str) -> Path:
 # Background job tracking
 # ---------------------------------------------------------------------------
 _jobs: dict[str, dict] = {}
+_jobs_lock = threading.Lock()
 
 
 def _update_job(job_id: str, **kwargs):
-    if job_id in _jobs:
-        _jobs[job_id].update(kwargs)
-        _jobs[job_id]["updated_at"] = time.time()
+    with _jobs_lock:
+        if job_id in _jobs:
+            _jobs[job_id].update(kwargs)
+            _jobs[job_id]["updated_at"] = time.time()
 
 
 # ---------------------------------------------------------------------------
@@ -697,15 +699,16 @@ def _run_index_job(job_id: str, req: IndexRequest):
 @app.post("/api/index")
 def start_indexing(req: IndexRequest):
     job_id = str(uuid_mod.uuid4())[:8]
-    _jobs[job_id] = {
-        "id": job_id,
-        "type": "index",
-        "status": "queued",
-        "progress": 0,
-        "message": "Starting...",
-        "created_at": time.time(),
-        "updated_at": time.time(),
-    }
+    with _jobs_lock:
+        _jobs[job_id] = {
+            "id": job_id,
+            "type": "index",
+            "status": "queued",
+            "progress": 0,
+            "message": "Starting...",
+            "created_at": time.time(),
+            "updated_at": time.time(),
+        }
     thread = threading.Thread(target=_run_index_job, args=(job_id, req), daemon=True)
     thread.start()
     return {"job_id": job_id, "status": "queued"}
@@ -833,15 +836,16 @@ def _run_generate_job(job_id: str, req: GenerateRequest):
 @app.post("/api/generate")
 def start_generate(req: GenerateRequest):
     job_id = str(uuid_mod.uuid4())[:8]
-    _jobs[job_id] = {
-        "id": job_id,
-        "type": "generate",
-        "status": "queued",
-        "progress": 0,
-        "message": "Starting...",
-        "created_at": time.time(),
-        "updated_at": time.time(),
-    }
+    with _jobs_lock:
+        _jobs[job_id] = {
+            "id": job_id,
+            "type": "generate",
+            "status": "queued",
+            "progress": 0,
+            "message": "Starting...",
+            "created_at": time.time(),
+            "updated_at": time.time(),
+        }
     thread = threading.Thread(target=_run_generate_job, args=(job_id, req), daemon=True)
     thread.start()
     return {"job_id": job_id, "status": "queued"}
@@ -922,16 +926,19 @@ def _run_custom_generate_job(job_id: str, req: CustomGenerateRequest):
 
 @app.post("/api/generate-custom")
 def start_custom_generate(req: CustomGenerateRequest):
+    if not req.shots:
+        raise HTTPException(status_code=400, detail="At least one shot is required")
     job_id = str(uuid_mod.uuid4())[:8]
-    _jobs[job_id] = {
-        "id": job_id,
-        "type": "generate-custom",
-        "status": "queued",
-        "progress": 0,
-        "message": "Starting custom render...",
-        "created_at": time.time(),
-        "updated_at": time.time(),
-    }
+    with _jobs_lock:
+        _jobs[job_id] = {
+            "id": job_id,
+            "type": "generate-custom",
+            "status": "queued",
+            "progress": 0,
+            "message": "Starting custom render...",
+            "created_at": time.time(),
+            "updated_at": time.time(),
+        }
     thread = threading.Thread(target=_run_custom_generate_job, args=(job_id, req), daemon=True)
     thread.start()
     return {"job_id": job_id, "status": "queued"}
@@ -943,14 +950,16 @@ def start_custom_generate(req: CustomGenerateRequest):
 
 @app.get("/api/jobs/{job_id}")
 def get_job_status(job_id: str):
-    if job_id not in _jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return _jobs[job_id]
+    with _jobs_lock:
+        if job_id not in _jobs:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return dict(_jobs[job_id])
 
 
 @app.get("/api/jobs")
 def list_jobs():
-    return {"jobs": list(_jobs.values())}
+    with _jobs_lock:
+        return {"jobs": [dict(j) for j in _jobs.values()]}
 
 
 # ---------------------------------------------------------------------------
@@ -976,7 +985,10 @@ def delete_video(filename: str):
     # Validate filename: no path traversal
     if "/" in filename or "\\" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
-    filepath = config.OUTPUT_DIR / filename
+    filepath = (config.OUTPUT_DIR / filename).resolve()
+    # Ensure resolved path is still within OUTPUT_DIR
+    if not str(filepath).startswith(str(config.OUTPUT_DIR.resolve())):
+        raise HTTPException(status_code=400, detail="Invalid filename")
     if not filepath.exists():
         raise HTTPException(status_code=404, detail="Video not found")
     filepath.unlink()
@@ -992,7 +1004,9 @@ def get_video_thumbnail(filename: str):
     # Validate filename: no path traversal
     if "/" in filename or "\\" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
-    filepath = config.OUTPUT_DIR / filename
+    filepath = (config.OUTPUT_DIR / filename).resolve()
+    if not str(filepath).startswith(str(config.OUTPUT_DIR.resolve())):
+        raise HTTPException(status_code=400, detail="Invalid filename")
     if not filepath.exists():
         raise HTTPException(status_code=404, detail="Video not found")
     thumb_path = _get_thumbnail_path(str(filepath))

@@ -62,7 +62,7 @@ function ToastItem({
 
   const className = [
     'flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg backdrop-blur-sm',
-    'transition-all duration-300 ease-in-out pointer-events-auto min-w-[300px] max-w-[420px]',
+    'transition-all duration-300 ease-in-out pointer-events-auto min-w-0 sm:min-w-[300px] max-w-[calc(100vw-2rem)] sm:max-w-[420px]',
     styles[toast.type],
     visible && !toast.exiting
       ? 'opacity-100 translate-x-0'

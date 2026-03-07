@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { Film, LayoutDashboard, FolderOpen, Search, Clapperboard, Play, Menu, X } from 'lucide-react'
+import { fetchStats, fetchVideos } from './api'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import Dashboard from './pages/Dashboard'
 import Library from './pages/Library'
@@ -19,6 +21,13 @@ const navItems = [
 export default function App() {
   const navigate = useNavigate()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: fetchStats, refetchInterval: 10000 })
+  const { data: videosData } = useQuery({ queryKey: ['videos'], queryFn: fetchVideos, refetchInterval: 10000 })
+
+  const navBadges: Record<string, number | undefined> = {
+    '/library': stats?.total,
+    '/videos': videosData?.videos?.length,
+  }
 
   // Global keyboard shortcuts: Ctrl+1-5 for navigation
   useEffect(() => {
@@ -89,24 +98,32 @@ export default function App() {
           <span className="text-base font-bold tracking-tight">Video Composer</span>
         </div>
         <div className="flex flex-col gap-0.5 p-3 flex-1">
-          {navItems.map(({ to, icon: Icon, label, shortcut }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) =>
-                `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-violet-500/15 text-violet-300'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
-                }`
-              }
-            >
-              <Icon className="w-4 h-4" />
-              <span className="flex-1">{label}</span>
-              <kbd className="text-[9px] text-zinc-600 font-mono hidden lg:inline">⌘{shortcut}</kbd>
-            </NavLink>
-          ))}
+          {navItems.map(({ to, icon: Icon, label, shortcut }) => {
+            const badge = navBadges[to]
+            return (
+              <NavLink
+                key={to}
+                to={to}
+                end={to === '/'}
+                className={({ isActive }) =>
+                  `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    isActive
+                      ? 'bg-violet-500/15 text-violet-300'
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
+                  }`
+                }
+              >
+                <Icon className="w-4 h-4" />
+                <span className="flex-1">{label}</span>
+                {badge != null && badge > 0 && (
+                  <span className="text-[10px] tabular-nums text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
+                    {badge}
+                  </span>
+                )}
+                <kbd className="text-[9px] text-zinc-600 font-mono hidden lg:inline">⌘{shortcut}</kbd>
+              </NavLink>
+            )
+          })}
         </div>
         <div className="p-4 border-t border-zinc-800 text-xs text-zinc-600">
           AI-powered video editing

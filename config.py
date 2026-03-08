@@ -23,12 +23,15 @@ CLIP_EMBEDDING_DIM = 512
 
 # Twelve Labs (preferred embedding engine)
 TWELVELABS_API_KEY = os.getenv("TWELVELABS_API_KEY")
-TWELVELABS_MODEL = "Marengo-retrieval-2.7"
-TWELVELABS_EMBEDDING_DIM = 1024
+TWELVELABS_MODEL = "marengo3.0"  # Embed API v2 (was "Marengo-retrieval-2.7")
+TWELVELABS_EMBEDDING_DIM = 512  # Marengo 3.0 produces 512-d vectors (was 1024)
 USE_TWELVELABS = bool(TWELVELABS_API_KEY)
 
 # Effective embedding dim depends on which engine is active
 EMBEDDING_DIM = TWELVELABS_EMBEDDING_DIM if USE_TWELVELABS else CLIP_EMBEDDING_DIM
+
+# Jamendo (royalty-free music library)
+JAMENDO_CLIENT_ID = os.getenv("JAMENDO_CLIENT_ID", "")
 
 VISION_MODEL = "claude-sonnet-4-20250514"
 DIRECTOR_MODEL = "claude-sonnet-4-20250514"

@@ -1,0 +1,177 @@
+{
+  "id": "0cf4f83d2244441789bbdff5ac0058bc",
+  "name": "Desert Marksman",
+  "prompt": "Make a montage of all the gun and shooting videos of me",
+  "created_at": 1772878453.420355,
+  "updated_at": 1772931491.159126,
+  "theme": "minimal",
+  "resolution": [
+    1920,
+    1080
+  ],
+  "fps": 30,
+  "music_path": "",
+  "music_volume": 0.3,
+  "timeline": {
+    "tracks": [
+      {
+        "id": "3470b52d",
+        "name": "Main Video",
+        "type": "video",
+        "clips": [
+          {
+            "id": "6def9e6d4199",
+            "media_uuid": "5581b651-1096-4e04-b4ea-91e376f0f622",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/5581b651-1096-4e04-b4ea-91e376f0f622.mov",
+            "media_type": "video",
+            "in_point": 0.0,
+            "out_point": 8.0,
+            "position": 3.0,
+            "duration": 8.0,
+            "volume": 1.0,
+            "effects": [],
+            "transition": {
+              "type": "crossfade",
+              "duration": 0.8
+            },
+            "role": "opener",
+            "reason": "Establishes the desert setting and casual confidence with the peace sign gesture - perfect opener to set the mood"
+          },
+          {
+            "id": "674fa7c32921",
+            "media_uuid": "6a3a53e0-5360-45ea-8d5c-ce81bfcc12b9",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/6a3a53e0-5360-45ea-8d5c-ce81bfcc12b9.jpeg",
+            "media_type": "photo",
+            "in_point": 0.0,
+            "out_point": 3.5,
+            "position": 11.0,
+            "duration": 3.5,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "ken_burns",
+                "params": {}
+              }
+            ],
+            "transition": {
+              "type": "dissolve",
+              "duration": 0.6
+            },
+            "role": "transition",
+            "reason": "Close-up detail shot of ammunition creates anticipation and shows preparation - bridges from intro to action"
+          },
+          {
+            "id": "b6d21d57dd24",
+            "media_uuid": "266f1485-653d-4ed9-b69c-82065aaa38ec",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/266f1485-653d-4ed9-b69c-82065aaa38ec.mov",
+            "media_type": "video",
+            "in_point": 0.0,
+            "out_point": 4.07,
+            "position": 14.5,
+            "duration": 4.07,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "speed",
+                "params": {
+                  "rate": 0.8
+                }
+              }
+            ],
+            "transition": {
+              "type": "slide_right",
+              "duration": 0.4
+            },
+            "role": "highlight",
+            "reason": "First shooting sequence - captures the focused stance and aiming, building the action narrative"
+          },
+          {
+            "id": "1bffa0c0dff9",
+            "media_uuid": "a83c15fa-8725-41fa-be6b-d87d983d60d8",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/a83c15fa-8725-41fa-be6b-d87d983d60d8.mov",
+            "media_type": "video",
+            "in_point": 5.0,
+            "out_point": 20.0,
+            "position": 18.57,
+            "duration": 15.0,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "speed",
+                "params": {
+                  "rate": 0.9
+                }
+              }
+            ],
+            "transition": {
+              "type": "wiperight",
+              "duration": 0.3
+            },
+            "role": "highlight",
+            "reason": "Main shooting sequence with precision rifle - this is the climax showing skill and focus with dramatic clouds"
+          }
+        ],
+        "text_elements": [],
+        "muted": false,
+        "locked": false,
+        "volume": 1.0
+      },
+      {
+        "id": "8da0dcb8",
+        "name": "Titles",
+        "type": "text",
+        "clips": [],
+        "text_elements": [
+          {
+            "id": "f8ecab491a71",
+            "text": "Desert Marksman",
+            "position": 0.0,
+            "duration": 3.0,
+            "x": 0.5,
+            "y": 0.5,
+            "font_size": 56,
+            "font_family": "Helvetica",
+            "color": "#FFFFFF",
+            "bg_color": "",
+            "animation": "fade",
+            "style": "title"
+          }
+        ],
+        "muted": false,
+        "locked": false,
+        "volume": 1.0
+      },
+      {
+        "id": "690fc88c",
+        "name": "Music",
+        "type": "audio",
+        "clips": [],
+        "text_elements": [],
+        "muted": false,
+        "locked": false,
+        "volume": 1.0
+      }
+    ],
+    "duration": 33.57
+  },
+  "render_history": [
+    {
+      "id": "9bc53634c7c1",
+      "output_path": "/output/Lock and Load.mp4",
+      "rendered_at": 1772879951.644522,
+      "theme": "minimal",
+      "resolution": "1920x1080",
+      "duration": 27.535
+    },
+    {
+      "id": "d97b6e733025",
+      "output_path": "/output/Lock and Load.mp4",
+      "rendered_at": 1772925156.726395,
+      "theme": "minimal",
+      "resolution": "1920x1080",
+      "duration": 27.535
+    }
+  ],
+  "narrative_summary": "A journey into precision shooting in the rugged desert, building from preparation through practice to mastery under vast open skies.",
+  "music_mood": "gritty western cinematic with electronic undertones"
+}

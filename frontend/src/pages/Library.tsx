@@ -300,13 +300,22 @@ export default function Library() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [selected])
 
+  const [recentUpload, setRecentUpload] = useState(false)
+
   const { data: statsData } = useQuery({
     queryKey: ['stats'],
     queryFn: fetchStats,
-    refetchInterval: 5000,
+    refetchInterval: recentUpload ? 5000 : false,
   })
 
-  const embeddingInProgress = statsData ? statsData.with_embeddings < statsData.total : false
+  const embeddingInProgress = recentUpload && statsData ? statsData.with_embeddings < statsData.total : false
+
+  // Stop polling 60s after the last upload
+  useEffect(() => {
+    if (!recentUpload) return
+    const timer = setTimeout(() => setRecentUpload(false), 60000)
+    return () => clearTimeout(timer)
+  }, [recentUpload])
 
   const { data, isLoading, error: mediaError, refetch: refetchMedia } = useQuery({
     queryKey: ['media', offset, sort, mediaTypeFilter, dateFrom, dateTo],
@@ -318,6 +327,7 @@ export default function Library() {
     mutationFn: (files: FileList | File[]) => uploadFiles(files, autoDescribe),
     onSuccess: (data) => {
       toast(`${data.uploaded} file${data.uploaded !== 1 ? 's' : ''} uploaded. Embedding in background...`, 'success')
+      setRecentUpload(true)
       queryClient.invalidateQueries({ queryKey: ['media'] })
       queryClient.invalidateQueries({ queryKey: ['stats'] })
     },

@@ -33,9 +33,26 @@ _FFMPEG = shutil.which("ffmpeg")
 _FFPROBE = shutil.which("ffprobe")
 
 
+def _has_drawtext() -> bool:
+    """Check if FFmpeg has the drawtext filter (requires libfreetype)."""
+    if not _FFMPEG:
+        return False
+    try:
+        result = subprocess.run(
+            [_FFMPEG, "-filters"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return "drawtext" in result.stdout
+    except Exception:
+        return False
+
+
+_DRAWTEXT_OK = _has_drawtext() if _FFMPEG else False
+
+
 def is_available() -> bool:
-    """Check if FFmpeg is available on the system."""
-    return _FFMPEG is not None and _FFPROBE is not None
+    """Check if FFmpeg is available with drawtext support."""
+    return _FFMPEG is not None and _FFPROBE is not None and _DRAWTEXT_OK
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +138,10 @@ def _probe(path: str) -> dict:
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     if result.returncode != 0:
         return {}
-    return json.loads(result.stdout)
+    try:
+        return json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError):
+        return {}
 
 
 def _get_duration(path: str) -> float:
@@ -145,11 +165,13 @@ def _resolve_media_path(path: str, uuid: str = "") -> str:
 
     ext = Path(url_filename).suffix or ".tmp"
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=ext)
+    os.close(tmp_fd)
     try:
         urllib.request.urlretrieve(path, tmp_path)
-    finally:
-        os.close(tmp_fd)
-    return tmp_path
+        return tmp_path
+    except Exception as exc:
+        Path(tmp_path).unlink(missing_ok=True)
+        raise RuntimeError(f"Failed to download {path}: {exc}") from exc
 
 
 def _hex_for_drawtext(color: str) -> str:
@@ -186,12 +208,16 @@ def _prepare_clip(
     if duration <= 0:
         duration = config.DEFAULT_PHOTO_DURATION
 
+    # Per-shot ken_burns and speed settings (from director)
+    use_ken_burns = getattr(shot, "ken_burns", theme.ken_burns)
+    speed = getattr(shot, "speed", 1.0)
+
     try:
         if shot.media_type == "photo":
             # Photo → video with optional Ken Burns
             filters = [f"scale={w}:{h}:force_original_aspect_ratio=decrease",
                        f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black"]
-            if theme.ken_burns:
+            if use_ken_burns:
                 # Gentle zoom from 1.0 to 1.12 over duration
                 filters = [
                     f"scale={int(w*1.15)}:{int(h*1.15)}:force_original_aspect_ratio=decrease",
@@ -216,6 +242,14 @@ def _prepare_clip(
                        f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black"]
             if theme.color_filter:
                 filters.append(theme.color_filter)
+            # Apply speed change if not 1.0
+            if speed != 1.0 and 0.5 <= speed <= 2.0:
+                filters.append(f"setpts={1.0/speed}*PTS")
+
+            audio_args = ["-c:a", "aac", "-b:a", "192k"]
+            # Adjust audio tempo if speed changed
+            if speed != 1.0 and 0.5 <= speed <= 2.0:
+                audio_args = ["-af", f"atempo={speed}", "-c:a", "aac", "-b:a", "192k"]
 
             _run_ffmpeg([
                 "-ss", str(shot.start_time),
@@ -224,7 +258,7 @@ def _prepare_clip(
                 "-vf", ",".join(filters),
                 "-r", str(fps),
                 "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-                "-c:a", "aac", "-b:a", "192k",
+                *audio_args,
                 "-pix_fmt", "yuv420p",
                 output,
             ], desc=f"video clip {index}")
@@ -298,16 +332,32 @@ def _concat_with_xfade(
     transition_dur: float,
     work_dir: str,
     resolution: tuple[int, int],
+    per_clip_transitions: list[tuple[str, float]] | None = None,
 ) -> str:
     """Concatenate clips using FFmpeg xfade filter for smooth transitions.
 
     For many clips, we chain xfade filters pairwise.
+
+    Parameters
+    ----------
+    per_clip_transitions:
+        Optional list of (transition_name, duration) tuples, one per clip.
+        The transition for clip i is applied between clip i and clip i+1.
+        If None, falls back to the single `transition`/`transition_dur` for all.
     """
     if not clips:
         raise RuntimeError("No clips to concatenate")
 
     if len(clips) == 1:
         return clips[0]
+
+    valid_xfades = {
+        "fade", "slideleft", "slideright", "slideup", "slidedown",
+        "circlecrop", "rectcrop", "distance", "fadeblack", "fadewhite",
+        "radial", "smoothleft", "smoothright", "smoothup", "smoothdown",
+        "circleopen", "circleclose", "dissolve", "pixelize", "wipeleft",
+        "wiperight", "wipeup", "wipedown", "cut",
+    }
 
     # Build complex filter graph for xfade chain
     # For N clips we need N-1 xfade operations
@@ -330,23 +380,32 @@ def _concat_with_xfade(
 
     for i in range(1, len(clips)):
         next_label = f"[{i}:v]"
-        offset = cumulative_offset + durations[i - 1] - transition_dur
+
+        # Determine transition for this cut point
+        if per_clip_transitions and i - 1 < len(per_clip_transitions):
+            clip_trans, clip_trans_dur = per_clip_transitions[i - 1]
+        else:
+            clip_trans, clip_trans_dur = transition, transition_dur
+
+        # Validate transition name
+        if clip_trans in ("cut", "none"):
+            # No xfade — just concatenate directly.
+            # This shouldn't normally happen (handled by _concat_clips) but be safe.
+            xfade_transition = "fade"
+            clip_trans_dur = 0.01  # near-instant
+        else:
+            xfade_transition = clip_trans if clip_trans in valid_xfades else "fade"
+        clip_trans_dur = max(0.2, min(1.5, clip_trans_dur)) if clip_trans != "cut" else clip_trans_dur
+
+        offset = cumulative_offset + durations[i - 1] - clip_trans_dur
         if offset < 0:
             offset = cumulative_offset + durations[i - 1] * 0.8
 
         out_label = f"[v{i}]" if i < len(clips) - 1 else "[vout]"
 
-        xfade_transition = transition if transition in (
-            "fade", "slideleft", "slideright", "slideup", "slidedown",
-            "circlecrop", "rectcrop", "distance", "fadeblack", "fadewhite",
-            "radial", "smoothleft", "smoothright", "smoothup", "smoothdown",
-            "circleopen", "circleclose", "dissolve", "pixelize", "wipeleft",
-            "wiperight", "wipeup", "wipedown",
-        ) else "fade"
-
         filter_parts.append(
             f"{current_label}{next_label}xfade=transition={xfade_transition}"
-            f":duration={transition_dur}:offset={offset:.3f}{out_label}"
+            f":duration={clip_trans_dur}:offset={offset:.3f}{out_label}"
         )
 
         current_label = out_label
@@ -362,23 +421,15 @@ def _concat_with_xfade(
         has_a = any(s.get("codec_type") == "audio" for s in streams)
         has_audio.append(has_a)
 
-    # If some clips have audio, use amix; otherwise skip audio
+    # If some clips have audio, concat them; otherwise skip audio
     audio_filter = ""
     any_audio = any(has_audio)
     if any_audio:
-        # Generate silent audio for clips without it, then concat
-        anull_parts = []
-        for i in range(len(clips)):
-            if has_audio[i]:
-                anull_parts.append(f"[{i}:a]")
-            else:
-                anull_parts.append(f"anullsrc=r=44100:cl=stereo[anull{i}];[anull{i}]atrim=0:{durations[i]}[a{i}_pad];")
-                # This gets complex — for simplicity just skip audio from clips without it
-        # Simple approach: concat audio
-        audio_inputs = ";".join(f"[{i}:a]" for i in range(len(clips)) if has_audio[i])
-        if sum(has_audio) > 1:
-            audio_filter = f";{''.join(f'[{i}:a]' for i in range(len(clips)) if has_audio[i])}concat=n={sum(has_audio)}:v=0:a=1[aout]"
-        elif sum(has_audio) == 1:
+        audio_count = sum(has_audio)
+        if audio_count > 1:
+            audio_refs = ''.join(f'[{i}:a]' for i in range(len(clips)) if has_audio[i])
+            audio_filter = f";{audio_refs}concat=n={audio_count}:v=0:a=1[aout]"
+        elif audio_count == 1:
             idx = has_audio.index(True)
             audio_filter = f";[{idx}:a]acopy[aout]"
 
@@ -403,6 +454,137 @@ def _concat_with_xfade(
     ])
 
     _run_ffmpeg(cmd, desc="xfade concatenation")
+    return output
+
+
+def _concat_clips(
+    clips: list[str],
+    per_clip_transitions: list[tuple[str, float]] | None,
+    work_dir: str,
+    resolution: tuple[int, int],
+    default_transition: str = "fade",
+    default_dur: float = 0.5,
+) -> str:
+    """Concatenate clips, handling both xfade transitions and hard cuts.
+
+    Splits clips into groups at "cut" boundaries, applies xfade within
+    groups, then concatenates groups with hard cuts using the concat demuxer.
+    """
+    if not clips:
+        raise RuntimeError("No clips to concatenate")
+
+    if len(clips) == 1:
+        return clips[0]
+
+    # Check if there are any "cut" transitions ("none" is the project-model alias)
+    _CUT_NAMES = {"cut", "none"}
+    has_cut = False
+    for i in range(1, len(clips)):
+        trans_name, _ = per_clip_transitions[i - 1] if per_clip_transitions and i - 1 < len(per_clip_transitions) else (default_transition, default_dur)
+        if trans_name in _CUT_NAMES:
+            has_cut = True
+            break
+
+    if not has_cut:
+        # No cut transitions — delegate entirely to xfade
+        return _concat_with_xfade(
+            clips, default_transition, default_dur, work_dir, resolution,
+            per_clip_transitions=per_clip_transitions,
+        )
+
+    # Split clips into groups separated by "cut" transitions
+    groups: list[tuple[list[str], list[tuple[str, float]]]] = []
+    current_group_clips: list[str] = [clips[0]]
+    current_group_trans: list[tuple[str, float]] = []
+
+    for i in range(1, len(clips)):
+        trans_name, trans_dur = per_clip_transitions[i - 1] if per_clip_transitions and i - 1 < len(per_clip_transitions) else (default_transition, default_dur)
+        if trans_name in _CUT_NAMES:
+            groups.append((current_group_clips, current_group_trans))
+            current_group_clips = [clips[i]]
+            current_group_trans = []
+        else:
+            current_group_clips.append(clips[i])
+            current_group_trans.append((trans_name, trans_dur))
+    groups.append((current_group_clips, current_group_trans))
+
+    # Process each group
+    group_outputs: list[str] = []
+    for g_idx, (g_clips, g_trans) in enumerate(groups):
+        if len(g_clips) == 1:
+            group_outputs.append(g_clips[0])
+        else:
+            group_out = _concat_with_xfade(
+                g_clips, default_transition, default_dur,
+                work_dir, resolution,
+                per_clip_transitions=g_trans if g_trans else None,
+            )
+            # Rename to avoid collisions between groups
+            renamed = os.path.join(work_dir, f"group_{g_idx:04d}.mp4")
+            os.rename(group_out, renamed)
+            group_outputs.append(renamed)
+
+    if len(group_outputs) == 1:
+        return group_outputs[0]
+
+    # Concatenate groups using the concat demuxer (hard cut between groups)
+    # First, check which groups have audio
+    group_has_audio: list[bool] = []
+    for gpath in group_outputs:
+        info = _probe(gpath)
+        streams = info.get("streams", [])
+        group_has_audio.append(any(s.get("codec_type") == "audio" for s in streams))
+
+    any_audio = any(group_has_audio)
+
+    # Build inputs and filter for the concat demuxer filter
+    inputs: list[str] = []
+    filter_parts: list[str] = []
+    for i, gpath in enumerate(group_outputs):
+        inputs.extend(["-i", gpath])
+        if any_audio and not group_has_audio[i]:
+            # Generate silent audio for this group so concat works
+            dur = _get_duration(gpath)
+            filter_parts.append(
+                f"anullsrc=r=44100:cl=stereo[sil{i}];[sil{i}]atrim=0:{dur:.3f}[a{i}]"
+            )
+            filter_parts.append(f"[{i}:v][a{i}]")
+        else:
+            if any_audio:
+                filter_parts.append(f"[{i}:v][{i}:a]")
+            else:
+                filter_parts.append(f"[{i}:v]")
+
+    # Separate stream refs from the anullsrc setup lines
+    setup_lines: list[str] = []
+    stream_refs: list[str] = []
+    for part in filter_parts:
+        if "anullsrc" in part:
+            setup_lines.append(part)
+        else:
+            stream_refs.append(part)
+
+    n = len(group_outputs)
+    if any_audio:
+        concat_expr = f"{''.join(stream_refs)}concat=n={n}:v=1:a=1[vout][aout]"
+    else:
+        concat_expr = f"{''.join(stream_refs)}concat=n={n}:v=1:a=0[vout]"
+
+    full_filter = ";".join(setup_lines + [concat_expr]) if setup_lines else concat_expr
+
+    output = os.path.join(work_dir, "concat_final.mp4")
+    cmd = inputs + ["-filter_complex", full_filter, "-map", "[vout]"]
+    if any_audio:
+        cmd.extend(["-map", "[aout]"])
+    cmd.extend([
+        "-c:v", "libx264", "-preset", "medium", "-crf", "17",
+        "-c:a", "aac", "-b:a", "192k",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        output,
+    ])
+
+    _run_ffmpeg(cmd, desc="concat groups (hard cut)")
     return output
 
 
@@ -578,6 +760,7 @@ def build_video(
     edl: "EditDecisionList",
     theme_name: str = "minimal",
     music_path: str | None = None,
+    music_volume: float = 0.3,
     output_path: str | None = None,
     progress_callback: "Callable[[int, str], None] | None" = None,
     text_elements: list[dict] | None = None,
@@ -636,9 +819,22 @@ def build_video(
 
         # --- Concatenate with transitions ------------------------------------
 
-        _report(70, f"Applying {theme.transition} transitions...")
-        video_path = _concat_with_xfade(
-            clip_paths, theme.transition, transition_dur, work_dir, resolution,
+        # Build per-clip transition list from EDL shots
+        # The first entry is for the title→first_shot transition (use theme default),
+        # then one per shot for shot→next transitions.
+        per_clip_transitions: list[tuple[str, float]] = []
+        # Title card → first shot: use theme default
+        per_clip_transitions.append((theme.transition, transition_dur))
+        for shot in edl.shots:
+            trans = getattr(shot, "transition", theme.transition)
+            trans_dur = getattr(shot, "transition_duration", transition_dur)
+            per_clip_transitions.append((trans, trans_dur))
+
+        _report(70, f"Applying per-clip transitions...")
+        video_path = _concat_clips(
+            clip_paths, per_clip_transitions, work_dir, resolution,
+            default_transition=theme.transition,
+            default_dur=transition_dur,
         )
 
         # --- Text overlays ---------------------------------------------------
@@ -653,7 +849,7 @@ def build_video(
 
         if music_path:
             _report(85, "Mixing background music with audio ducking...")
-            video_path = _mix_music(video_path, music_path, 0.3, work_dir)
+            video_path = _mix_music(video_path, music_path, music_volume, work_dir)
 
         # --- Final output ----------------------------------------------------
 

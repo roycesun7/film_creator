@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { fetchStats, fetchJobs, fetchVideos, fetchMedia, thumbnailUrl, type Job, type MediaItem } from '../api'
+import { fetchStats, fetchJobs, fetchVideos, fetchMedia, thumbnailUrl, type Job } from '../api'
 import {
   Image, Film, Cpu, BarChart3, Users, FolderOpen,
   Loader2, AlertCircle, Upload, Search, Clapperboard, Play, ArrowRight
@@ -58,12 +58,14 @@ export default function Dashboard() {
   const { data: stats, isLoading, error, refetch } = useQuery({
     queryKey: ['stats'],
     queryFn: fetchStats,
-    refetchInterval: 5000,
   })
   const { data: jobsData } = useQuery({
     queryKey: ['jobs'],
     queryFn: fetchJobs,
-    refetchInterval: 3000,
+    refetchInterval: (query) => {
+      const jobs = query.state.data?.jobs || []
+      return jobs.some((j: any) => j.status === 'running' || j.status === 'queued') ? 3000 : false
+    },
   })
   const { data: videosData } = useQuery({
     queryKey: ['videos'],

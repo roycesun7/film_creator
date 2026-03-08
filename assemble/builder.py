@@ -459,6 +459,7 @@ def build_video(
     edl: "EditDecisionList",
     theme_name: str = "minimal",
     music_path: str | None = None,
+    music_volume: float = 0.3,
     output_path: str | None = None,
     progress_callback: "Callable[[int, str], None] | None" = None,
     text_elements: list[dict] | None = None,

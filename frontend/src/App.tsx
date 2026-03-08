@@ -24,8 +24,8 @@ const navItems = [
 export default function App() {
   const navigate = useNavigate()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: fetchStats, refetchInterval: 10000 })
-  const { data: videosData } = useQuery({ queryKey: ['videos'], queryFn: fetchVideos, refetchInterval: 10000 })
+  const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: fetchStats, refetchInterval: 30000 })
+  const { data: videosData } = useQuery({ queryKey: ['videos'], queryFn: fetchVideos })
 
   const navBadges: Record<string, number | undefined> = {
     '/library': stats?.total,

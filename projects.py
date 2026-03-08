@@ -251,6 +251,7 @@ def edl_to_project(
     prompt: str = "",
     theme: str = "minimal",
     music_path: str = "",
+    music_volume: float = 0.3,
 ) -> Project:
     """Convert an EDL response (from the AI director) into a Project with timeline.
 
@@ -262,6 +263,7 @@ def edl_to_project(
         prompt=prompt,
         theme=theme,
         music_path=music_path,
+        music_volume=music_volume,
         narrative_summary=edl_data.get("narrative_summary", ""),
         music_mood=edl_data.get("music_mood", ""),
     )
@@ -271,12 +273,31 @@ def edl_to_project(
     text_track = Track(name="Titles", type="text")
     audio_track = Track(name="Music", type="audio")
 
-    # Convert shots to clips
+    # Convert shots to clips with transitions and effects
     current_position = 3.0  # leave room for title card
     for shot_data in edl_data.get("shots", []):
         duration = shot_data.get("end_time", 0) - shot_data.get("start_time", 0)
         if duration <= 0:
             duration = 3.0
+
+        # Map director's transition choice to Transition object
+        trans_type = shot_data.get("transition", "cut")
+        # Normalize xfade names to our model's names
+        trans_map = {"cut": "none", "fade": "crossfade", "fadeblack": "fade_black",
+                     "fadewhite": "fade_white", "slideleft": "slide_left",
+                     "slideright": "slide_right", "smoothleft": "smooth_left",
+                     "smoothright": "smooth_right", "wipeleft": "wipe_left",
+                     "wiperight": "wipe_right"}
+        trans_type = trans_map.get(trans_type, trans_type)
+        trans_dur = shot_data.get("transition_duration", 0.0)
+
+        # Build effects list from director hints
+        effects = []
+        if shot_data.get("ken_burns", shot_data.get("media_type") == "photo"):
+            effects.append(ClipEffect(type="ken_burns", params={}))
+        speed = shot_data.get("speed", 1.0)
+        if speed != 1.0:
+            effects.append(ClipEffect(type="speed", params={"rate": speed}))
 
         clip = Clip(
             media_uuid=shot_data.get("uuid", ""),
@@ -288,6 +309,8 @@ def edl_to_project(
             duration=duration,
             role=shot_data.get("role", "highlight"),
             reason=shot_data.get("reason", ""),
+            transition=Transition(type=trans_type, duration=trans_dur),
+            effects=effects,
         )
         video_track.clips.append(clip)
         current_position += duration
@@ -311,7 +334,7 @@ def edl_to_project(
             media_type="audio",
             position=0.0,
             duration=current_position + 2.0,  # extend past video
-            volume=0.3,
+            volume=music_volume,
         )
         audio_track.clips.append(music_clip)
 

@@ -1,0 +1,146 @@
+{
+  "id": "be5482cd3830467ebfa7c5b2435d1423",
+  "name": "Summer 2024: Desert Adventures",
+  "prompt": "Make me a summer 2024 recap video",
+  "created_at": 1772932416.6728792,
+  "updated_at": 1772932568.677786,
+  "theme": "minimal",
+  "resolution": [
+    1920,
+    1080
+  ],
+  "fps": 30,
+  "music_path": "",
+  "music_volume": 0.3,
+  "timeline": {
+    "tracks": [
+      {
+        "id": "5e6b629f",
+        "name": "Main Video",
+        "type": "video",
+        "clips": [
+          {
+            "id": "d9dd17766bce",
+            "media_uuid": "5581b651-1096-4e04-b4ea-91e376f0f622",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/5581b651-1096-4e04-b4ea-91e376f0f622.mov",
+            "media_type": "video",
+            "in_point": 5.0,
+            "out_point": 11.0,
+            "position": 3.0,
+            "duration": 6.0,
+            "volume": 1.0,
+            "effects": [],
+            "transition": {
+              "type": "crossfade",
+              "duration": 0.8
+            },
+            "role": "opener",
+            "reason": "Sets the scene with the peace sign gesture and desert landscape, establishing the summer adventure mood"
+          },
+          {
+            "id": "ce72d5d318be",
+            "media_uuid": "6a3a53e0-5360-45ea-8d5c-ce81bfcc12b9",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/6a3a53e0-5360-45ea-8d5c-ce81bfcc12b9.jpeg",
+            "media_type": "photo",
+            "in_point": 0.0,
+            "out_point": 3.5,
+            "position": 9.0,
+            "duration": 3.5,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "ken_burns",
+                "params": {}
+              }
+            ],
+            "transition": {
+              "type": "dissolve",
+              "duration": 0.6
+            },
+            "role": "transition",
+            "reason": "Detail shot showing ammunition prep, building anticipation for the shooting sequence"
+          },
+          {
+            "id": "ec5e830b7d98",
+            "media_uuid": "266f1485-653d-4ed9-b69c-82065aaa38ec",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/266f1485-653d-4ed9-b69c-82065aaa38ec.mov",
+            "media_type": "video",
+            "in_point": 0.0,
+            "out_point": 4.07,
+            "position": 12.5,
+            "duration": 4.07,
+            "volume": 1.0,
+            "effects": [],
+            "transition": {
+              "type": "slide_left",
+              "duration": 0.4
+            },
+            "role": "highlight",
+            "reason": "Dynamic action shot of target practice showcasing summer activity and skill development"
+          },
+          {
+            "id": "bd00c8773cdd",
+            "media_uuid": "a83c15fa-8725-41fa-be6b-d87d983d60d8",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/a83c15fa-8725-41fa-be6b-d87d983d60d8.mov",
+            "media_type": "video",
+            "in_point": 8.0,
+            "out_point": 18.0,
+            "position": 16.57,
+            "duration": 10.0,
+            "volume": 1.0,
+            "effects": [],
+            "transition": {
+              "type": "wiperight",
+              "duration": 0.5
+            },
+            "role": "highlight",
+            "reason": "Wide shot showing the group dynamic and precision shooting setup, capturing the social aspect of summer adventures"
+          }
+        ],
+        "text_elements": [],
+        "muted": false,
+        "locked": false,
+        "volume": 1.0
+      },
+      {
+        "id": "29ef3a3d",
+        "name": "Titles",
+        "type": "text",
+        "clips": [],
+        "text_elements": [
+          {
+            "id": "eb7c82cb1ff8",
+            "text": "Summer 2024: Desert Adventures",
+            "position": 0.0,
+            "duration": 3.0,
+            "x": 0.5,
+            "y": 0.5,
+            "font_size": 56,
+            "font_family": "Helvetica",
+            "color": "#FFFFFF",
+            "bg_color": "",
+            "animation": "fade",
+            "style": "title"
+          }
+        ],
+        "muted": false,
+        "locked": false,
+        "volume": 1.0
+      },
+      {
+        "id": "ecfb0556",
+        "name": "Music",
+        "type": "audio",
+        "clips": [],
+        "text_elements": [],
+        "muted": false,
+        "locked": false,
+        "volume": 1.0
+      }
+    ],
+    "duration": 26.57
+  },
+  "render_history": [],
+  "narrative_summary": "A summer journey through desert landscapes, from target practice adventures to peaceful moments on open roads, capturing the spirit of exploration and skill-building under endless blue skies.",
+  "music_mood": "upbeat indie rock with desert americana vibes"
+}

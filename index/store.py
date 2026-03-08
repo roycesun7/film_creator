@@ -19,8 +19,6 @@ from config import (
     SUPABASE_SERVICE_ROLE_KEY,
     SUPABASE_ANON_KEY,
     EMBEDDING_DIM,
-    TWELVELABS_EMBEDDING_DIM,
-    CLIP_EMBEDDING_DIM,
     USE_TWELVELABS,
 )
 
@@ -57,8 +55,11 @@ def _list_to_embedding(data) -> Optional[np.ndarray]:
     if data is None:
         return None
     if isinstance(data, str):
-        # pgvector returns '[0.1,0.2,...]' string format
-        data = json.loads(data)
+        try:
+            data = json.loads(data)
+        except (json.JSONDecodeError, ValueError):
+            logger.warning("Failed to parse embedding string: %s", data[:80] if len(data) > 80 else data)
+            return None
     return np.array(data, dtype=np.float32)
 
 
@@ -90,19 +91,18 @@ def upsert_media(item: dict) -> None:
     embedding = item.get("embedding")
     embedding_list = _embedding_to_list(embedding) if embedding is not None else None
 
-    # Determine which column to store the embedding in
+    # Determine which column to store the embedding in.
+    # Use the USE_TWELVELABS flag rather than dimension, because Marengo 3.0
+    # and CLIP both produce 512-d vectors.
     emb_col = "embedding"
     clip_emb_val = None
     if embedding is not None:
-        dim = len(embedding.flatten())
-        if dim == CLIP_EMBEDDING_DIM:
+        if USE_TWELVELABS:
+            pass  # Twelve Labs embeddings go in 'embedding' column
+        else:
             emb_col = "clip_embedding"
             clip_emb_val = embedding_list
             embedding_list = None
-        elif dim == TWELVELABS_EMBEDDING_DIM:
-            pass  # stays in 'embedding' column
-        else:
-            logger.warning("Unknown embedding dimension %d for %s", dim, item.get("uuid"))
 
     record = {
         "uuid": item.get("uuid"),
@@ -133,13 +133,12 @@ def upsert_media(item: dict) -> None:
 def update_embedding(media_uuid: str, embedding: np.ndarray) -> None:
     """Update just the embedding for an existing media record."""
     client = _get_client()
-    dim = len(embedding.flatten())
     emb_list = _embedding_to_list(embedding)
 
-    if dim == CLIP_EMBEDDING_DIM:
-        client.table("media").update({"clip_embedding": emb_list}).eq("uuid", media_uuid).execute()
-    else:
+    if USE_TWELVELABS:
         client.table("media").update({"embedding": emb_list}).eq("uuid", media_uuid).execute()
+    else:
+        client.table("media").update({"clip_embedding": emb_list}).eq("uuid", media_uuid).execute()
 
 
 def search_by_text(
@@ -148,13 +147,11 @@ def search_by_text(
 ) -> list[dict]:
     """Find media items most similar to a query embedding via pgvector cosine distance."""
     client = _get_client()
-    dim = len(query_embedding.flatten())
     emb_list = _embedding_to_list(query_embedding)
 
-    if dim == CLIP_EMBEDDING_DIM:
-        rpc_name = "match_media_clip"
-    else:
-        rpc_name = "match_media"
+    # Choose the RPC based on the active embedding engine, not dimension
+    # (Marengo 3.0 and CLIP both produce 512-d vectors).
+    rpc_name = "match_media" if USE_TWELVELABS else "match_media_clip"
 
     try:
         resp = client.rpc(rpc_name, {
@@ -254,10 +251,9 @@ def get_all_embeddings() -> tuple[list[str], np.ndarray]:
 
     if USE_TWELVELABS:
         col = "embedding"
-        dim = TWELVELABS_EMBEDDING_DIM
     else:
         col = "clip_embedding"
-        dim = CLIP_EMBEDDING_DIM
+    dim = EMBEDDING_DIM
 
     resp = client.table("media").select(f"uuid, {col}").not_.is_(col, "null").execute()
 
@@ -420,10 +416,9 @@ def search_keyframes_by_text(
     Returns the single best-matching keyframe per video.
     """
     client = _get_client()
-    dim = len(query_embedding.flatten())
 
-    if dim != TWELVELABS_EMBEDDING_DIM:
-        # Keyframes are always 1024-d (Twelve Labs only)
+    if not USE_TWELVELABS:
+        # Keyframe embeddings are Twelve Labs only
         return []
 
     emb_list = _embedding_to_list(query_embedding)

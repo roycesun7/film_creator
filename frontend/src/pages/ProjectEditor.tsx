@@ -3,16 +3,19 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   fetchProject, updateProject, projectPreview, projectRender,
-  fetchJob, thumbnailUrl, searchMedia, fetchMedia, uploadMusic,
+  fetchJob, thumbnailUrl, videoUrl, searchMedia, fetchMedia,
+  uploadProjectMusic, deleteProjectMusic,
+  searchMusicLibrary, selectLibraryMusic, suggestMusic,
+  fetchMusicLibraryStatus,
   type ProjectData, type TimelineClip, type TimelineTrack, type TextElement,
-  type MediaItem
+  type MediaItem, type MusicTrack
 } from '../api'
 import {
-  Loader2, Play, Save, Sparkles, Clapperboard, Film, Music, Type,
-  Plus, Trash2, GripVertical, X, ChevronLeft, Clock, Eye,
-  Volume2, VolumeX, Lock, Unlock, ArrowUp, ArrowDown, Download,
-  Settings, Layers, RotateCcw, Upload, Link2, Search, ImagePlus,
-  FolderOpen, GripHorizontal
+  Loader2, Play, Pause, Save, Sparkles, Clapperboard, Film, Music, Type,
+  Plus, Trash2, X, ChevronLeft, Clock, SkipBack,
+  Volume2, VolumeX, Lock, Unlock, Download,
+  Settings, Layers, RotateCcw, Upload, Search, ImagePlus,
+  FolderOpen, Library
 } from 'lucide-react'
 import { useToast } from '../components/Toast'
 
@@ -45,7 +48,7 @@ const THEME_OPTIONS = [
 
 function TimelineClipComponent({
   clip,
-  trackType,
+  trackType: _trackType,
   pixelsPerSecond,
   onSelect,
   isSelected,
@@ -270,8 +273,8 @@ function ClipInspector({
   onClose: () => void
 }) {
   return (
-    <div className="w-72 bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto">
-      <div className="flex items-center justify-between mb-4">
+    <div>
+      <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-zinc-200">Clip Properties</h3>
         <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">
           <X className="w-4 h-4" />
@@ -279,12 +282,22 @@ function ClipInspector({
       </div>
 
       {clip.media_uuid && (
-        <div className="mb-4 aspect-video bg-black rounded-lg overflow-hidden">
-          <img
-            src={thumbnailUrl(clip.media_uuid)}
-            alt=""
-            className="w-full h-full object-cover"
-          />
+        <div className="mb-4 aspect-video bg-black rounded-lg overflow-hidden relative group">
+          {clip.media_type === 'video' ? (
+            <video
+              src={videoUrl(clip.media_uuid)}
+              poster={thumbnailUrl(clip.media_uuid)}
+              controls
+              preload="metadata"
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <img
+              src={thumbnailUrl(clip.media_uuid)}
+              alt=""
+              className="w-full h-full object-cover"
+            />
+          )}
         </div>
       )}
 
@@ -418,8 +431,8 @@ function TextElementInspector({
   onClose: () => void
 }) {
   return (
-    <div className="w-72 bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto">
-      <div className="flex items-center justify-between mb-4">
+    <div>
+      <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-zinc-200">Text Properties</h3>
         <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">
           <X className="w-4 h-4" />
@@ -582,7 +595,7 @@ function MediaBrowser({
   const isLoading = browseQuery.isLoading || searchMut.isPending
 
   return (
-    <div className="w-72 bg-zinc-900 border-l border-zinc-800 flex flex-col h-full">
+    <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-zinc-800">
         <h3 className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
           <FolderOpen className="w-3.5 h-3.5" /> Media Browser
@@ -692,6 +705,232 @@ function MediaBrowser({
 }
 
 
+function TimelinePreview({
+  tracks,
+  playheadPos,
+  onPlayheadChange,
+  timelineDuration,
+  isPlaying,
+  setIsPlaying,
+}: {
+  tracks: TimelineTrack[]
+  playheadPos: number
+  onPlayheadChange: (pos: number) => void
+  timelineDuration: number
+  isPlaying: boolean
+  setIsPlaying: (v: boolean) => void
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const rafRef = useRef(0)
+  const lastFrameRef = useRef(0)
+  const currentSrcRef = useRef('')
+  const playheadRef = useRef(playheadPos)
+  const durationRef = useRef(timelineDuration)
+
+  playheadRef.current = playheadPos
+  durationRef.current = timelineDuration
+
+  const videoTrack = tracks.find(t => t.type === 'video')
+  const sortedClips = useMemo(() => {
+    const c = videoTrack?.clips || []
+    return [...c].sort((a, b) => a.position - b.position)
+  }, [videoTrack])
+
+  const activeClip = useMemo(() =>
+    sortedClips.find(c => playheadPos >= c.position && playheadPos < c.position + c.duration) || null,
+    [sortedClips, playheadPos]
+  )
+
+  const activeTexts = useMemo(() =>
+    tracks
+      .filter(t => t.type === 'text' && !t.muted)
+      .flatMap(t => t.text_elements)
+      .filter(te => playheadPos >= te.position && playheadPos < te.position + te.duration),
+    [tracks, playheadPos]
+  )
+
+  // Sync video source when active clip changes
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    if (!activeClip || activeClip.media_type !== 'video') {
+      if (currentSrcRef.current) {
+        video.pause()
+        video.removeAttribute('src')
+        video.load()
+        currentSrcRef.current = ''
+      }
+      return
+    }
+
+    const src = videoUrl(activeClip.media_uuid)
+    const sourceTime = activeClip.in_point + (playheadPos - activeClip.position)
+
+    if (currentSrcRef.current !== src) {
+      currentSrcRef.current = src
+      video.src = src
+      video.currentTime = sourceTime
+      if (isPlaying) video.play().catch(() => {})
+    }
+  }, [activeClip?.id])
+
+  // Seek when scrubbing (not playing)
+  useEffect(() => {
+    if (isPlaying) return
+    const video = videoRef.current
+    if (!video || !activeClip || activeClip.media_type !== 'video') return
+    const sourceTime = activeClip.in_point + (playheadPos - activeClip.position)
+    if (Math.abs(video.currentTime - sourceTime) > 0.1) {
+      video.currentTime = sourceTime
+    }
+  }, [playheadPos, isPlaying, activeClip])
+
+  // Playback loop
+  useEffect(() => {
+    if (!isPlaying) {
+      cancelAnimationFrame(rafRef.current)
+      videoRef.current?.pause()
+      return
+    }
+
+    const video = videoRef.current
+    if (video && currentSrcRef.current) {
+      video.play().catch(() => {})
+    }
+
+    lastFrameRef.current = performance.now()
+
+    const tick = (now: number) => {
+      const dt = (now - lastFrameRef.current) / 1000
+      lastFrameRef.current = now
+
+      const newPos = playheadRef.current + dt
+      if (newPos >= durationRef.current) {
+        setIsPlaying(false)
+        onPlayheadChange(0)
+        videoRef.current?.pause()
+        return
+      }
+
+      onPlayheadChange(newPos)
+      rafRef.current = requestAnimationFrame(tick)
+    }
+
+    rafRef.current = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafRef.current)
+  }, [isPlaying, onPlayheadChange, setIsPlaying])
+
+  // When play starts/stops, sync video
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !currentSrcRef.current) return
+    if (isPlaying) {
+      const clip = sortedClips.find(c => playheadRef.current >= c.position && playheadRef.current < c.position + c.duration)
+      if (clip && clip.media_type === 'video') {
+        video.currentTime = clip.in_point + (playheadRef.current - clip.position)
+        video.play().catch(() => {})
+      }
+    } else {
+      video.pause()
+    }
+  }, [isPlaying])
+
+  const formatTime = (s: number) => {
+    const m = Math.floor(s / 60)
+    const sec = Math.floor(s % 60)
+    return `${m}:${String(sec).padStart(2, '0')}`
+  }
+
+  return (
+    <div className="flex-1 flex flex-col bg-black min-h-0">
+      <div className="relative flex-1 mx-auto w-full bg-black overflow-hidden" style={{ aspectRatio: '16/9' }}>
+        {/* Video layer */}
+        <video
+          ref={videoRef}
+          className={`absolute inset-0 w-full h-full object-contain ${
+            activeClip?.media_type === 'video' ? '' : 'hidden'
+          }`}
+          playsInline
+          preload="auto"
+        />
+
+        {/* Photo layer */}
+        {activeClip?.media_type === 'photo' && (
+          <img
+            src={thumbnailUrl(activeClip.media_uuid)}
+            alt=""
+            className="absolute inset-0 w-full h-full object-contain"
+          />
+        )}
+
+        {/* Empty states */}
+        {!activeClip && sortedClips.length > 0 && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-zinc-700 text-xs">No clip at playhead</span>
+          </div>
+        )}
+        {sortedClips.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-zinc-700 text-sm">Add clips to preview</span>
+          </div>
+        )}
+
+        {/* Text overlays */}
+        {activeTexts.map(te => (
+          <div
+            key={te.id}
+            className="absolute left-0 right-0 text-center pointer-events-none"
+            style={{ top: `${te.y * 100}%`, transform: 'translateY(-50%)' }}
+          >
+            <span
+              style={{
+                fontSize: `${Math.max(te.font_size * 0.4, 12)}px`,
+                color: te.color,
+                backgroundColor: te.bg_color || 'transparent',
+                padding: '2px 8px',
+                fontFamily: te.font_family,
+              }}
+            >
+              {te.text}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Transport controls */}
+      <div className="flex items-center justify-center gap-3 px-4 py-1.5 bg-zinc-900/80">
+        <button
+          onClick={() => { onPlayheadChange(0); setIsPlaying(false) }}
+          className="p-1 rounded-md hover:bg-zinc-700/60 text-zinc-500 hover:text-zinc-300 transition-colors"
+          title="Go to start"
+        >
+          <SkipBack className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={() => {
+            if (!isPlaying && playheadPos >= timelineDuration && timelineDuration > 0) {
+              onPlayheadChange(0)
+            }
+            setIsPlaying(!isPlaying)
+          }}
+          className="p-1.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition-colors"
+          title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+        >
+          {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+        </button>
+        <span className="text-[11px] text-zinc-400 tabular-nums min-w-[80px] text-center">
+          {formatTime(playheadPos)} / {formatTime(timelineDuration)}
+        </span>
+        {activeClip && (
+          <span className="text-[10px] text-zinc-600 capitalize">{activeClip.role}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+
 export default function ProjectEditor() {
   const { id: projectId } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -703,11 +942,26 @@ export default function ProjectEditor() {
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null)
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null)
   const [renderJobId, setRenderJobId] = useState<string | null>(null)
+  const [arrangeJobId, setArrangeJobId] = useState<string | null>(null)
+  const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null)
+  const [isPlaying, setIsPlaying] = useState(false)
   const [zoom, setZoom] = useState(1.0)
   const [mediaBrowserOpen, setMediaBrowserOpen] = useState(false)
   const [undoStack, setUndoStack] = useState<ProjectData[]>([])
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [playheadPos, setPlayheadPos] = useState(0)
+  const [musicUploading, setMusicUploading] = useState(false)
+  const [musicInfo, setMusicInfo] = useState<{ bpm?: number; duration?: number; sections?: number } | null>(null)
+  const [musicBrowserOpen, setMusicBrowserOpen] = useState(false)
+  const [musicSearchQuery, setMusicSearchQuery] = useState('')
+  const [musicSearchMood, setMusicSearchMood] = useState('')
+  const [musicSearchGenre, setMusicSearchGenre] = useState('')
+  const [musicSearchResults, setMusicSearchResults] = useState<MusicTrack[]>([])
+  const [musicSearching, setMusicSearching] = useState(false)
+  const [musicSelecting, setMusicSelecting] = useState<string | null>(null)
+  const [musicPreviewTrackId, setMusicPreviewTrackId] = useState<string | null>(null)
+  const [musicLibraryAvailable, setMusicLibraryAvailable] = useState<boolean | null>(null)
+  const [musicSuggesting, setMusicSuggesting] = useState(false)
+  const musicPreviewRef = useRef<HTMLAudioElement | null>(null)
   const timelineScrollRef = useRef<HTMLDivElement>(null)
 
   const pixelsPerSecond = PIXELS_PER_SECOND * zoom
@@ -726,6 +980,23 @@ export default function ProjectEditor() {
     }
   }, [fetchedProject])
 
+  // Check music library availability on mount
+  useEffect(() => {
+    fetchMusicLibraryStatus()
+      .then(res => setMusicLibraryAvailable(res.available))
+      .catch(() => setMusicLibraryAvailable(false))
+  }, [])
+
+  // Cleanup music preview audio on unmount
+  useEffect(() => {
+    return () => {
+      if (musicPreviewRef.current) {
+        musicPreviewRef.current.pause()
+        musicPreviewRef.current = null
+      }
+    }
+  }, [])
+
   const saveMut = useMutation({
     mutationFn: () => updateProject(projectId!, project!),
     onSuccess: (data) => {
@@ -738,15 +1009,52 @@ export default function ProjectEditor() {
   })
 
   const previewMut = useMutation({
-    mutationFn: () => projectPreview(projectId!),
+    mutationFn: async () => {
+      // Save first so the backend has the latest prompt
+      if (project && dirty) {
+        await updateProject(projectId!, project)
+      }
+      return projectPreview(projectId!)
+    },
     onSuccess: (data) => {
-      setProject(data)
-      setDirty(false)
-      toast(`AI generated ${data.timeline.tracks[0]?.clips.length || 0} shots`, 'success')
-      queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+      setArrangeJobId(data.job_id)
     },
     onError: (err) => toast(err instanceof Error ? err.message : 'Preview failed', 'error'),
   })
+
+  // Poll the AI arrange job for progress
+  const { data: arrangeJob } = useQuery({
+    queryKey: ['job', arrangeJobId],
+    queryFn: () => fetchJob(arrangeJobId!),
+    enabled: !!arrangeJobId,
+    refetchInterval: (query) => {
+      const j = query.state.data
+      return j && (j.status === 'queued' || j.status === 'running') ? 800 : false
+    },
+  })
+
+  const prevArrangeStatus = useRef(arrangeJob?.status)
+  useEffect(() => {
+    const prev = prevArrangeStatus.current
+    prevArrangeStatus.current = arrangeJob?.status
+    if (prev === arrangeJob?.status) return
+    if (arrangeJob?.status === 'completed') {
+      // Load the updated project from the job result
+      if ((arrangeJob as any)?.project) {
+        setProject((arrangeJob as any).project)
+        setDirty(false)
+      }
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+      const shots = (arrangeJob as any)?.project?.timeline?.tracks?.[0]?.clips?.length || 0
+      toast(`AI arranged ${shots} shots`, 'success')
+      setArrangeJobId(null)
+    } else if (arrangeJob?.status === 'failed') {
+      toast('AI arrange failed: ' + (arrangeJob?.message || ''), 'error')
+      setArrangeJobId(null)
+    }
+  }, [arrangeJob?.status])
+
+  const isArranging = !!arrangeJobId && arrangeJob?.status !== 'completed' && arrangeJob?.status !== 'failed'
 
   const renderMut = useMutation({
     mutationFn: () => projectRender(projectId!),
@@ -800,6 +1108,82 @@ export default function ProjectEditor() {
       return stack.slice(0, -1)
     })
   }, [])
+
+  // Music library callbacks
+  const handleMusicSearch = useCallback(async () => {
+    setMusicSearching(true)
+    try {
+      const result = await searchMusicLibrary({
+        query: musicSearchQuery,
+        mood: musicSearchMood,
+        genre: musicSearchGenre,
+        limit: 20,
+      })
+      setMusicSearchResults(result.tracks)
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Music search failed', 'error')
+    } finally {
+      setMusicSearching(false)
+    }
+  }, [musicSearchQuery, musicSearchMood, musicSearchGenre, toast])
+
+  const handleMusicPreview = useCallback((track: MusicTrack) => {
+    if (musicPreviewTrackId === track.id) {
+      if (musicPreviewRef.current) {
+        musicPreviewRef.current.pause()
+        musicPreviewRef.current = null
+      }
+      setMusicPreviewTrackId(null)
+    } else {
+      if (musicPreviewRef.current) {
+        musicPreviewRef.current.pause()
+      }
+      const audio = new Audio(track.preview_url)
+      audio.volume = 0.5
+      audio.play().catch(() => {})
+      audio.onended = () => setMusicPreviewTrackId(null)
+      musicPreviewRef.current = audio
+      setMusicPreviewTrackId(track.id)
+    }
+  }, [musicPreviewTrackId])
+
+  const handleSelectLibraryTrack = useCallback(async (track: MusicTrack) => {
+    if (!projectId) return
+    setMusicSelecting(track.id)
+    try {
+      if (musicPreviewRef.current) {
+        musicPreviewRef.current.pause()
+        musicPreviewRef.current = null
+        setMusicPreviewTrackId(null)
+      }
+      const result = await selectLibraryMusic(projectId, track.id)
+      updateProjectLocal(p => ({ ...p, music_path: result.music_path }))
+      setMusicInfo({ bpm: result.bpm, duration: result.duration, sections: result.sections })
+      toast(`Music set: ${track.title} by ${track.artist}`, 'success')
+      setMusicBrowserOpen(false)
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to select track', 'error')
+    } finally {
+      setMusicSelecting(null)
+    }
+  }, [projectId, toast, updateProjectLocal])
+
+  const handleSuggestMusic = useCallback(async () => {
+    if (!projectId) return
+    setMusicSuggesting(true)
+    setMusicBrowserOpen(true)
+    try {
+      const result = await suggestMusic(projectId)
+      setMusicSearchResults(result.tracks)
+      setMusicSearchQuery('')
+      setMusicSearchMood('')
+      setMusicSearchGenre('')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Music suggestion failed', 'error')
+    } finally {
+      setMusicSuggesting(false)
+    }
+  }, [projectId, toast])
 
   const updateClip = useCallback((clipId: string, updates: Partial<TimelineClip>) => {
     updateProjectLocal(p => ({
@@ -943,14 +1327,15 @@ export default function ProjectEditor() {
 
   const addClipFromMedia = useCallback((item: MediaItem) => {
     if (!project) return
-    const videoTrack = project.timeline.tracks.find(t => t.type === 'video')
-    if (!videoTrack) return
+    const existingVideoTrack = project.timeline.tracks.find(t => t.type === 'video')
 
     // Place at the end of existing clips
     let endPos = 0
-    for (const c of videoTrack.clips) {
-      const cEnd = c.position + c.duration
-      if (cEnd > endPos) endPos = cEnd
+    if (existingVideoTrack) {
+      for (const c of existingVideoTrack.clips) {
+        const cEnd = c.position + c.duration
+        if (cEnd > endPos) endPos = cEnd
+      }
     }
 
     const clipDuration = item.media_type === 'video' ? Math.min(item.duration || 5, 10) : 4.0
@@ -970,16 +1355,39 @@ export default function ProjectEditor() {
       reason: '',
     }
 
-    updateProjectLocal(p => ({
-      ...p,
-      timeline: {
-        ...p.timeline,
-        tracks: p.timeline.tracks.map(t =>
-          t.id === videoTrack.id ? { ...t, clips: [...t.clips, newClip] } : t
-        ),
-        duration: Math.max(p.timeline.duration, endPos + clipDuration),
-      },
-    }))
+    updateProjectLocal(p => {
+      let tracks = p.timeline.tracks
+      let targetTrackId: string
+
+      if (existingVideoTrack) {
+        targetTrackId = existingVideoTrack.id
+        tracks = tracks.map(t =>
+          t.id === targetTrackId ? { ...t, clips: [...t.clips, newClip] } : t
+        )
+      } else {
+        // Create a default video track with the new clip
+        const newTrack = {
+          id: Math.random().toString(36).slice(2, 10),
+          name: 'Main Video',
+          type: 'video',
+          clips: [newClip],
+          text_elements: [],
+          muted: false,
+          locked: false,
+          volume: 1.0,
+        }
+        tracks = [newTrack, ...tracks]
+      }
+
+      return {
+        ...p,
+        timeline: {
+          ...p.timeline,
+          tracks,
+          duration: Math.max(p.timeline.duration, endPos + clipDuration),
+        },
+      }
+    })
     setSelectedClipId(newClip.id)
     setSelectedTextId(null)
   }, [project, updateProjectLocal])
@@ -1018,9 +1426,14 @@ export default function ProjectEditor() {
       const tag = (e.target as HTMLElement).tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
 
+      if (e.key === ' ' || e.key === 'k') {
+        e.preventDefault()
+        setIsPlaying(prev => !prev)
+      }
       if (e.key === 'Escape') {
         setSelectedClipId(null)
         setSelectedTextId(null)
+        setIsPlaying(false)
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && (selectedClipId || selectedTextId)) {
         e.preventDefault()
@@ -1079,6 +1492,18 @@ export default function ProjectEditor() {
   }, [project])
   const videoTrack = project?.timeline.tracks.find(t => t.type === 'video')
   const clipCount = videoTrack?.clips.length || 0
+  const [sidePanel, setSidePanel] = useState<'brief' | 'inspector' | 'media' | 'settings' | 'renders'>('brief')
+
+  // Auto-switch to inspector when a clip/text is selected
+  useEffect(() => {
+    if (selectedClipId || selectedTextId) setSidePanel('inspector')
+  }, [selectedClipId, selectedTextId])
+
+  // Auto-switch to media when media browser opens
+  useEffect(() => {
+    if (mediaBrowserOpen) setSidePanel('media')
+  }, [mediaBrowserOpen])
+
   const isJobRunning = job && (job.status === 'queued' || job.status === 'running')
   const isJobDone = job?.status === 'completed'
 
@@ -1111,529 +1536,740 @@ export default function ProjectEditor() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Top bar */}
-      <div className="shrink-0 bg-zinc-900/90 border-b border-zinc-800 px-4 py-2.5 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+    <div className="flex flex-col h-full bg-zinc-950">
+      {/* Top bar — compact toolbar */}
+      <div className="shrink-0 bg-zinc-900/90 border-b border-zinc-800 px-3 py-1.5 flex items-center justify-between">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => navigate('/projects')}
-            className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
+            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronLeft className="w-4 h-4" />
           </button>
-          <div>
-            <input
-              type="text"
-              value={project.name}
-              onChange={(e) => updateProjectLocal(p => ({ ...p, name: e.target.value }))}
-              className="bg-transparent text-sm font-semibold text-zinc-100 focus:outline-none border-b border-transparent focus:border-violet-500 transition-colors"
-            />
-            <div className="flex items-center gap-3 text-[10px] text-zinc-500 mt-0.5">
-              <span className="flex items-center gap-1">
-                <Clock className="w-3 h-3" />
-                {timelineDuration > 0 ? `${Math.floor(timelineDuration / 60)}:${String(Math.floor(timelineDuration % 60)).padStart(2, '0')}` : '0:00'}
-              </span>
-              <span>{clipCount} clips</span>
-              <span>{project.timeline.tracks.length} tracks</span>
-              {dirty && <span className="text-amber-400">Unsaved changes</span>}
-            </div>
+          <input
+            type="text"
+            value={project.name}
+            onChange={(e) => updateProjectLocal(p => ({ ...p, name: e.target.value }))}
+            className="bg-transparent text-sm font-semibold text-zinc-100 focus:outline-none border-b border-transparent focus:border-violet-500 transition-colors w-48"
+          />
+          <div className="flex items-center gap-2 text-[10px] text-zinc-500">
+            <span>{clipCount} clips</span>
+            <span className="text-zinc-700">|</span>
+            <span>{timelineDuration > 0 ? `${Math.floor(timelineDuration / 60)}:${String(Math.floor(timelineDuration % 60)).padStart(2, '0')}` : '0:00'}</span>
+            {dirty && <span className="text-amber-400 ml-1">unsaved</span>}
           </div>
         </div>
-
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={undo}
-            disabled={undoStack.length === 0}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 disabled:opacity-20 transition-colors"
-            title="Undo (Ctrl+Z)"
-          >
+        <div className="flex items-center gap-1">
+          <button onClick={undo} disabled={undoStack.length === 0} className="p-1.5 rounded text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 disabled:opacity-20 transition-colors" title="Undo (Ctrl+Z)">
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
-          <div className="w-px h-5 bg-zinc-800 mx-0.5" />
-          <button
-            onClick={() => saveMut.mutate()}
-            disabled={!dirty || saveMut.isPending}
-            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 transition-colors border border-zinc-700"
-            title="Save (Ctrl+S)"
-          >
-            {saveMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            Save
-          </button>
-          <button
-            onClick={() => setMediaBrowserOpen(!mediaBrowserOpen)}
-            className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors border ${
-              mediaBrowserOpen
-                ? 'bg-violet-600/20 text-violet-300 border-violet-500/40'
-                : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border-zinc-700'
-            }`}
-            title="Browse and add media (M)"
-          >
-            <ImagePlus className="w-3.5 h-3.5" />
-            Media
-          </button>
-          <button
-            onClick={() => previewMut.mutate()}
-            disabled={!project.prompt || previewMut.isPending}
-            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 transition-colors border border-zinc-700"
-            title="AI will select and arrange clips based on your creative brief"
-          >
-            {previewMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-            AI Arrange
-          </button>
-          <button
-            onClick={() => setSettingsOpen(!settingsOpen)}
-            className={`p-1.5 rounded-lg transition-colors ${settingsOpen ? 'bg-zinc-700 text-zinc-200' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'}`}
-            title="Project settings"
-          >
-            <Settings className="w-3.5 h-3.5" />
+          <button onClick={() => saveMut.mutate()} disabled={!dirty || saveMut.isPending} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 transition-colors border border-zinc-700" title="Save (Ctrl+S)">
+            {saveMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />} Save
           </button>
           <button
             onClick={() => renderMut.mutate()}
             disabled={clipCount === 0 || renderMut.isPending || !!isJobRunning}
-            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-30 transition-colors"
+            className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-30 transition-colors"
           >
-            {(renderMut.isPending || isJobRunning) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clapperboard className="w-3.5 h-3.5" />}
-            Render
+            {(renderMut.isPending || isJobRunning) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Clapperboard className="w-3 h-3" />} Export
           </button>
         </div>
       </div>
 
-      {/* Creative brief */}
-      <div className="shrink-0 bg-zinc-900/50 border-b border-zinc-800 px-4 py-3">
-        <label className="block text-[10px] font-medium text-zinc-500 uppercase tracking-wide mb-1.5">Creative Brief</label>
-        <textarea
-          value={project.prompt}
-          onChange={(e) => updateProjectLocal(p => ({ ...p, prompt: e.target.value }))}
-          placeholder="Describe what this video should be about... (e.g. 'A warm montage of our summer vacation — beaches, sunsets, and laughter')"
-          rows={2}
-          className="w-full bg-zinc-800/50 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500 resize-none"
-        />
-        {project.narrative_summary && (
-          <p className="text-[11px] text-zinc-500 mt-1.5 italic">{project.narrative_summary}</p>
-        )}
-      </div>
-
-      {/* Settings panel (collapsible) */}
-      {settingsOpen && (
-        <div className="shrink-0 bg-zinc-900/50 border-b border-zinc-800 px-4 py-3">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {/* Theme */}
-            <div>
-              <label className="block text-[10px] font-medium text-zinc-500 uppercase tracking-wide mb-1.5">Theme</label>
-              <div className="grid grid-cols-3 gap-1">
-                {THEME_OPTIONS.map(t => (
-                  <button
-                    key={t.value}
-                    onClick={() => updateProjectLocal(p => ({ ...p, theme: t.value }))}
-                    className={`text-[10px] px-2 py-1.5 rounded-md border transition-colors ${
-                      project.theme === t.value
-                        ? 'bg-violet-600/20 border-violet-500/40 text-violet-300'
-                        : 'bg-zinc-800/60 border-zinc-700/40 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600'
-                    }`}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Music */}
-            <div>
-              <label className="block text-[10px] font-medium text-zinc-500 uppercase tracking-wide mb-1.5">Background Music</label>
-              {project.music_path ? (
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 bg-zinc-800/50 border border-zinc-700/40 rounded-md px-2.5 py-1.5 text-xs text-zinc-300 truncate">
-                    <Music className="w-3 h-3 inline mr-1.5 text-zinc-500" />
-                    {project.music_path.split('/').pop()}
-                  </div>
-                  <button
-                    onClick={() => updateProjectLocal(p => ({ ...p, music_path: '' }))}
-                    className="p-1 text-zinc-500 hover:text-red-400 transition-colors"
-                    title="Remove music"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ) : (
-                <label className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-md bg-zinc-800/60 border border-zinc-700/40 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 cursor-pointer transition-colors">
-                  <Upload className="w-3.5 h-3.5" /> Upload Music
-                  <input
-                    type="file"
-                    accept=".mp3,.wav,.aac,.m4a,.ogg,.flac"
-                    className="hidden"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0]
-                      if (!file) return
-                      try {
-                        const result = await uploadMusic(file)
-                        updateProjectLocal(p => ({ ...p, music_path: result.path }))
-                        toast(`Music uploaded: ${result.filename}`, 'success')
-                      } catch (err) {
-                        toast(err instanceof Error ? err.message : 'Upload failed', 'error')
-                      }
-                    }}
-                  />
-                </label>
-              )}
-            </div>
-
-            {/* Music Volume */}
-            <div>
-              <label className="block text-[10px] font-medium text-zinc-500 uppercase tracking-wide mb-1.5">
-                Music Volume: {Math.round((project.music_volume || 0.3) * 100)}%
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={project.music_volume || 0.3}
-                onChange={(e) => updateProjectLocal(p => ({ ...p, music_volume: parseFloat(e.target.value) }))}
-                className="w-full accent-violet-500"
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Render progress */}
+      {/* Render progress bar (only when rendering) */}
       {isJobRunning && job && (
-        <div className="shrink-0 bg-violet-500/10 border-b border-violet-500/30 px-4 py-2.5">
-          <div className="flex items-center justify-between text-xs mb-1.5">
-            <span className="text-violet-200">{job.message}</span>
+        <div className="shrink-0 bg-violet-500/10 border-b border-violet-500/30 px-4 py-1.5">
+          <div className="flex items-center justify-between text-[10px] mb-1">
+            <span className="text-violet-300">{job.message}</span>
             <span className="text-violet-400 tabular-nums">{job.progress}%</span>
           </div>
-          <div className="w-full h-1.5 bg-violet-900/50 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-violet-500 rounded-full transition-all duration-700"
-              style={{ width: `${job.progress}%` }}
-            />
+          <div className="w-full h-1 bg-violet-900/50 rounded-full overflow-hidden">
+            <div className="h-full bg-violet-500 rounded-full transition-all duration-700" style={{ width: `${job.progress}%` }} />
           </div>
         </div>
       )}
 
-      {/* Render complete */}
-      {isJobDone && job?.output_path && (
-        <div className="shrink-0 bg-emerald-500/10 border-b border-emerald-500/30 px-4 py-3 flex items-center justify-between">
-          <p className="text-sm text-emerald-300 font-medium">Video rendered!</p>
-          <div className="flex items-center gap-2">
-            <a
-              href={job.output_path}
-              download
-              className="flex items-center gap-1.5 text-xs font-medium bg-zinc-700/60 text-zinc-300 hover:bg-zinc-700 px-3 py-1.5 rounded-lg transition-colors"
-            >
-              <Download className="w-3.5 h-3.5" /> Download
-            </a>
-            <button
-              onClick={() => {
-                const url = window.location.origin + job.output_path
-                navigator.clipboard.writeText(url).then(() => toast('URL copied', 'success'))
-              }}
-              className="flex items-center gap-1.5 text-xs font-medium bg-zinc-700/60 text-zinc-300 hover:bg-zinc-700 px-3 py-1.5 rounded-lg transition-colors"
-            >
-              <Link2 className="w-3.5 h-3.5" /> Copy Link
-            </button>
-            <button
-              onClick={() => navigate('/videos')}
-              className="flex items-center gap-1.5 text-xs font-medium bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 px-3 py-1.5 rounded-lg transition-colors"
-            >
-              <Film className="w-3.5 h-3.5" /> View Videos
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Main content: Timeline + Inspector */}
+      {/* ===== MAIN AREA: Preview + Side Panel ===== */}
       <div className="flex flex-1 min-h-0">
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Zoom controls + timeline info */}
-          <div className="shrink-0 flex items-center gap-2 bg-zinc-900/60 border-b border-zinc-800/80 px-4 py-1.5">
-            <span className="text-[10px] text-zinc-500">Zoom</span>
-            <input
-              type="range"
-              min={0.3}
-              max={3}
-              step={0.1}
-              value={zoom}
-              onChange={(e) => setZoom(parseFloat(e.target.value))}
-              className="w-24 accent-violet-500"
-            />
-            <span className="text-[10px] text-zinc-500 tabular-nums w-8">{Math.round(zoom * 100)}%</span>
-            <div className="w-px h-4 bg-zinc-800 mx-1" />
-            <span className="text-[10px] text-zinc-400 capitalize">{project.theme.replace('_', ' ')}</span>
-            <div className="w-px h-4 bg-zinc-800 mx-1" />
-            <span className="text-[10px] text-red-400/70 tabular-nums">
-              {Math.floor(playheadPos / 60)}:{String(Math.floor(playheadPos % 60)).padStart(2, '0')}.{String(Math.floor((playheadPos % 1) * 10)).padStart(1, '0')}
-            </span>
-            {project.music_path && (
-              <>
-                <div className="w-px h-4 bg-zinc-800 mx-1" />
-                <span className="text-[10px] text-zinc-500 flex items-center gap-1">
-                  <Music className="w-3 h-3" /> {project.music_path.split('/').pop()?.slice(0, 20)}
-                </span>
-              </>
-            )}
-            <div className="flex-1" />
-            {selectedClipId && selectedClip && (
-              <span className="text-[10px] text-violet-400 tabular-nums">
-                Selected: {selectedClip.role} @ {selectedClip.position.toFixed(1)}s
-              </span>
-            )}
-            {selectedTextId && selectedText && (
-              <span className="text-[10px] text-indigo-400">
-                Selected: "{selectedText.text.slice(0, 20)}"
-              </span>
-            )}
-          </div>
+        {/* LEFT: Preview Monitor */}
+        <div className="flex-1 flex flex-col min-w-0 bg-black">
+          <TimelinePreview
+            tracks={project.timeline.tracks}
+            playheadPos={playheadPos}
+            onPlayheadChange={setPlayheadPos}
+            timelineDuration={timelineDuration}
+            isPlaying={isPlaying}
+            setIsPlaying={setIsPlaying}
+          />
 
-          {/* Timeline with synchronized scrolling */}
-          {(() => {
-            const timelineWidth = Math.max(800, timelineDuration * pixelsPerSecond + 100)
-            const hasContent = project.timeline.tracks.length > 0 && (clipCount > 0 || project.timeline.tracks.some(t => t.text_elements.length > 0))
-            const tickInterval = zoom < 0.8 ? 5 : zoom < 1.5 ? 2 : 1
-
-            if (!hasContent) {
-              return (
-                <div className="flex-1 flex flex-col items-center justify-center text-zinc-600 gap-4 px-8">
-                  <Layers className="w-12 h-12 opacity-20" />
-                  <div className="text-center">
-                    <p className="text-sm font-medium text-zinc-400 mb-1">Empty Timeline</p>
-                    <p className="text-xs text-zinc-600 max-w-md">
-                      Write a creative brief and click "AI Arrange" to auto-generate a video, or open the Media Browser to manually add clips.
-                    </p>
-                  </div>
-                  <div className="flex gap-3 mt-2">
-                    <button
-                      onClick={() => setMediaBrowserOpen(true)}
-                      className="flex items-center gap-1.5 text-xs font-medium px-4 py-2 rounded-lg bg-violet-600/20 text-violet-300 hover:bg-violet-600/30 border border-violet-500/30 transition-colors"
-                    >
-                      <ImagePlus className="w-3.5 h-3.5" /> Open Media Browser
-                    </button>
-                    {project.prompt && (
-                      <button
-                        onClick={() => previewMut.mutate()}
-                        disabled={previewMut.isPending}
-                        className="flex items-center gap-1.5 text-xs font-medium px-4 py-2 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700 transition-colors"
-                      >
-                        <Sparkles className="w-3.5 h-3.5" /> AI Arrange
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-[10px] text-zinc-700 mt-1">Press <kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-500 text-[9px]">M</kbd> to toggle Media Browser</p>
-                </div>
-              )
-            }
-
-            return (
-              <div className="flex-1 flex min-h-0">
-                {/* Fixed track headers column */}
-                <div className="w-40 shrink-0 flex flex-col">
-                  {/* Ruler spacer */}
-                  <div className="h-6 bg-zinc-900/80 border-r border-zinc-800 border-b border-b-zinc-800/80" />
-                  {/* Track headers */}
-                  <div className="flex-1 overflow-y-hidden">
-                    {project.timeline.tracks.map(track => (
-                      <TrackHeader
-                        key={track.id}
-                        track={track}
-                        onToggleMute={() => toggleTrackMute(track.id)}
-                        onToggleLock={() => toggleTrackLock(track.id)}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                {/* Scrollable timeline content (ruler + all track clips) */}
-                <div className="flex-1 overflow-auto min-w-0" ref={timelineScrollRef}>
-                  <div style={{ width: `${timelineWidth}px` }}>
-                    {/* Time ruler — click or drag to scrub */}
-                    <div
-                      className="relative h-6 bg-zinc-900/60 border-b border-zinc-800/80 sticky top-0 z-10 cursor-pointer"
-                      onPointerDown={(e) => {
-                        const rect = e.currentTarget.getBoundingClientRect()
-                        const updatePos = (clientX: number) => {
-                          const x = clientX - rect.left
-                          setPlayheadPos(Math.max(0, Math.round(x / pixelsPerSecond * 4) / 4))
-                        }
-                        updatePos(e.clientX)
-                        e.currentTarget.setPointerCapture(e.pointerId)
-                        const el = e.currentTarget
-                        const onMove = (ev: PointerEvent) => updatePos(ev.clientX)
-                        const onUp = () => {
-                          el.removeEventListener('pointermove', onMove)
-                          el.removeEventListener('pointerup', onUp)
-                        }
-                        el.addEventListener('pointermove', onMove)
-                        el.addEventListener('pointerup', onUp)
-                      }}
-                    >
-                      {Array.from({ length: Math.ceil(timelineDuration) + 1 }).map((_, i) => (
-                        <div
-                          key={i}
-                          className="absolute top-0 bottom-0 flex flex-col items-center"
-                          style={{ left: `${i * pixelsPerSecond}px` }}
-                        >
-                          <div className="w-px h-2 bg-zinc-600" />
-                          {i % tickInterval === 0 && (
-                            <span className="text-[8px] text-zinc-600 tabular-nums mt-0.5">
-                              {Math.floor(i / 60)}:{String(i % 60).padStart(2, '0')}
-                            </span>
-                          )}
-                        </div>
-                      ))}
-                      {/* Playhead marker on ruler */}
-                      <div
-                        className="absolute top-0 bottom-0 z-20 pointer-events-none"
-                        style={{ left: `${playheadPos * pixelsPerSecond}px` }}
-                      >
-                        <div className="w-0 h-0 border-l-[5px] border-r-[5px] border-t-[6px] border-l-transparent border-r-transparent border-t-red-500 -translate-x-[5px]" />
-                      </div>
-                    </div>
-
-                    {/* Track clip areas + playhead line */}
-                    <div className="relative" style={{ minHeight: `${project.timeline.tracks.length * TRACK_HEIGHT}px` }}>
-                      {/* Grid lines spanning all tracks */}
-                      {Array.from({ length: Math.ceil(timelineDuration) + 1 }).map((_, i) => (
-                        <div
-                          key={i}
-                          className="absolute top-0 bottom-0 w-px bg-zinc-800/50"
-                          style={{ left: `${i * pixelsPerSecond}px` }}
-                        />
-                      ))}
-
-                      {/* Playhead line */}
-                      <div
-                        className="absolute top-0 bottom-0 w-px bg-red-500 z-20 pointer-events-none"
-                        style={{ left: `${playheadPos * pixelsPerSecond}px` }}
-                      />
-
-                      {project.timeline.tracks.map(track => (
-                        <TrackClips
-                          key={track.id}
-                          track={track}
-                          pixelsPerSecond={pixelsPerSecond}
-                          timelineWidth={timelineWidth}
-                          selectedClipId={selectedClipId || selectedTextId}
-                          onSelectClip={(id) => {
-                            const isText = track.text_elements.some(te => te.id === id)
-                            if (isText) handleSelectText(id)
-                            else handleSelectClip(id)
-                          }}
-                          onMoveClip={moveClip}
-                          onResizeClip={resizeClip}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )
-          })()}
-
-          {/* Storyboard strip (below timeline) */}
-          {clipCount > 0 && (
-            <div className="shrink-0 bg-zinc-900/80 border-t border-zinc-800 px-4 py-2.5">
-              <p className="text-[10px] text-zinc-500 uppercase tracking-wide mb-2">Storyboard</p>
-              <div className="flex gap-1 overflow-x-auto pb-1">
-                {videoTrack?.clips.map((clip, i) => (
-                  <button
-                    key={clip.id}
-                    onClick={() => setSelectedClipId(clip.id)}
-                    className={`shrink-0 rounded overflow-hidden border transition-all ${
-                      selectedClipId === clip.id
-                        ? 'border-violet-500 ring-1 ring-violet-500/30'
-                        : 'border-zinc-700/50 hover:border-zinc-600'
-                    }`}
-                    style={{ width: `${Math.max(48, Math.min(100, clip.duration * 14))}px` }}
-                    title={`#${i + 1} ${clip.role} — ${clip.duration.toFixed(1)}s`}
-                  >
-                    <div className="aspect-[16/10] bg-zinc-800 relative">
-                      <img
-                        src={thumbnailUrl(clip.media_uuid)}
-                        alt=""
-                        className="w-full h-full object-cover"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                      />
-                      <div className="absolute bottom-0 inset-x-0 bg-black/70 px-0.5 py-px">
-                        <span className="text-[7px] text-zinc-300">{clip.duration.toFixed(1)}s</span>
-                      </div>
-                    </div>
-                  </button>
-                ))}
+          {/* Render complete overlay inside monitor */}
+          {isJobDone && job?.output_path && (
+            <div className="shrink-0 bg-emerald-500/10 border-t border-emerald-500/30 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-emerald-300 font-medium">Export ready</span>
+                <a href={job.output_path} download className="flex items-center gap-1 text-[11px] font-medium bg-zinc-700/60 text-zinc-300 hover:bg-zinc-700 px-2 py-1 rounded transition-colors">
+                  <Download className="w-3 h-3" /> Download
+                </a>
+                <button onClick={() => { setPreviewVideoUrl(job.output_path!); setSidePanel('renders') }} className="flex items-center gap-1 text-[11px] font-medium text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded transition-colors">
+                  <Play className="w-3 h-3" /> Watch
+                </button>
+                <button onClick={() => setRenderJobId(null)} className="ml-auto text-zinc-600 hover:text-zinc-400 transition-colors">
+                  <X className="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
           )}
         </div>
 
-        {/* Inspector panel */}
-        {selectedClip && (
-          <ClipInspector
-            clip={selectedClip}
-            onUpdate={(updates) => updateClip(selectedClip.id, updates)}
-            onRemove={() => removeClip(selectedClip.id)}
-            onClose={() => setSelectedClipId(null)}
-          />
-        )}
-        {selectedText && (
-          <TextElementInspector
-            element={selectedText}
-            onUpdate={(updates) => updateTextElement(selectedText.id, updates)}
-            onRemove={() => removeTextElement(selectedText.id)}
-            onClose={() => setSelectedTextId(null)}
-          />
-        )}
+        {/* RIGHT: Side Panel with tabs */}
+        <div className="w-80 shrink-0 flex flex-col border-l border-zinc-800 bg-zinc-900/70">
+          {/* Tab bar */}
+          <div className="shrink-0 flex border-b border-zinc-800">
+            {([
+              { key: 'brief' as const, icon: Sparkles, label: 'Brief' },
+              { key: 'media' as const, icon: ImagePlus, label: 'Media' },
+              { key: 'inspector' as const, icon: Layers, label: 'Inspect' },
+              { key: 'settings' as const, icon: Settings, label: 'Settings' },
+              ...(project.render_history.length > 0 ? [{ key: 'renders' as const, icon: Film, label: 'Renders' }] : []),
+            ]).map(({ key, icon: Icon, label }) => (
+              <button
+                key={key}
+                onClick={() => { setSidePanel(key); setMediaBrowserOpen(key === 'media') }}
+                title={label}
+                className={`flex-1 flex items-center justify-center gap-1 py-2 text-[10px] font-medium transition-colors border-b-2 ${
+                  sidePanel === key
+                    ? 'text-violet-300 border-violet-500 bg-violet-500/5'
+                    : 'text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-zinc-800/50'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline truncate">{label}</span>
+              </button>
+            ))}
+          </div>
 
-        {/* Media Browser panel */}
-        {mediaBrowserOpen && (
-          <MediaBrowser
-            onAddClip={addClipFromMedia}
-            onClose={() => setMediaBrowserOpen(false)}
-          />
-        )}
+          {/* Panel content */}
+          <div className="flex-1 overflow-y-auto">
+            {/* Brief tab */}
+            {sidePanel === 'brief' && (
+              <div className="p-3 space-y-3">
+                <div>
+                  <label className="block text-[10px] font-medium text-zinc-500 uppercase tracking-wide mb-1.5">Creative Brief</label>
+                  <textarea
+                    value={project.prompt}
+                    onChange={(e) => updateProjectLocal(p => ({ ...p, prompt: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && project.prompt && !isArranging) {
+                        e.preventDefault()
+                        previewMut.mutate()
+                      }
+                    }}
+                    disabled={isArranging}
+                    placeholder="Describe what this video should be about..."
+                    rows={4}
+                    className="w-full bg-zinc-800/50 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500 resize-none disabled:opacity-50"
+                  />
+                  {isArranging ? (
+                    <div className="mt-2 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-violet-400 shrink-0" />
+                        <span className="text-xs text-zinc-300 truncate">{arrangeJob?.message || 'Starting...'}</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-violet-500 rounded-full transition-all duration-500 ease-out"
+                          style={{ width: `${arrangeJob?.progress || 0}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => previewMut.mutate()}
+                      disabled={!project.prompt || previewMut.isPending}
+                      className="w-full mt-2 flex items-center justify-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-30 transition-colors"
+                      title="AI Arrange (Ctrl+Enter)"
+                    >
+                      {previewMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                      AI Arrange
+                    </button>
+                  )}
+                  {project.narrative_summary && !isArranging && (
+                    <p className="text-[11px] text-zinc-500 mt-2 italic">{project.narrative_summary}</p>
+                  )}
+                  {!project.narrative_summary && project.prompt && !isArranging && (
+                    <p className="text-[10px] text-zinc-600 mt-1.5">
+                      <kbd className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-500 text-[9px]">Ctrl+Enter</kbd> to generate
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Inspector tab */}
+            {sidePanel === 'inspector' && (
+              <div className="p-3">
+                {selectedClip ? (
+                  <ClipInspector
+                    clip={selectedClip}
+                    onUpdate={(updates) => updateClip(selectedClip.id, updates)}
+                    onRemove={() => removeClip(selectedClip.id)}
+                    onClose={() => setSelectedClipId(null)}
+                  />
+                ) : selectedText ? (
+                  <TextElementInspector
+                    element={selectedText}
+                    onUpdate={(updates) => updateTextElement(selectedText.id, updates)}
+                    onRemove={() => removeTextElement(selectedText.id)}
+                    onClose={() => setSelectedTextId(null)}
+                  />
+                ) : (
+                  <div className="text-center py-12 text-zinc-600">
+                    <Layers className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                    <p className="text-xs">Select a clip or text element to inspect</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Media tab */}
+            {sidePanel === 'media' && (
+              <MediaBrowser
+                onAddClip={addClipFromMedia}
+                onClose={() => { setMediaBrowserOpen(false); setSidePanel('brief') }}
+              />
+            )}
+
+            {/* Settings tab */}
+            {sidePanel === 'settings' && (
+              <div className="p-3 space-y-4">
+                <div>
+                  <label className="block text-[10px] font-medium text-zinc-500 uppercase tracking-wide mb-1.5">Theme</label>
+                  <div className="grid grid-cols-2 gap-1">
+                    {THEME_OPTIONS.map(t => (
+                      <button
+                        key={t.value}
+                        onClick={() => updateProjectLocal(p => ({ ...p, theme: t.value }))}
+                        className={`text-[10px] px-2 py-1.5 rounded-md border transition-colors ${
+                          project.theme === t.value
+                            ? 'bg-violet-600/20 border-violet-500/40 text-violet-300'
+                            : 'bg-zinc-800/60 border-zinc-700/40 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600'
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-zinc-500 uppercase tracking-wide mb-1.5">Background Music</label>
+                  {project.music_path ? (
+                    <div className="space-y-2">
+                      <div className="bg-zinc-800/50 border border-zinc-700/40 rounded-md p-2.5">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-8 h-8 rounded-md bg-violet-600/20 border border-violet-500/30 flex items-center justify-center shrink-0">
+                            <Music className="w-4 h-4 text-violet-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-zinc-300 truncate font-medium">{project.music_path.split('/').pop()}</p>
+                            {musicInfo?.duration != null && (
+                              <p className="text-[10px] text-zinc-500">{Math.floor(musicInfo.duration / 60)}:{String(Math.floor(musicInfo.duration % 60)).padStart(2, '0')}</p>
+                            )}
+                          </div>
+                          <button
+                            onClick={async () => {
+                              try {
+                                await deleteProjectMusic(projectId!)
+                                updateProjectLocal(p => ({ ...p, music_path: '' }))
+                                setMusicInfo(null)
+                                toast('Music removed', 'success')
+                              } catch (err) {
+                                toast(err instanceof Error ? err.message : 'Failed to remove', 'error')
+                              }
+                            }}
+                            className="p-1 text-zinc-500 hover:text-red-400 transition-colors shrink-0"
+                            title="Remove music"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        {(musicInfo?.bpm != null || musicInfo?.sections != null) && (
+                          <div className="flex items-center gap-3 text-[10px]">
+                            {musicInfo.bpm != null && (
+                              <span className="flex items-center gap-1 text-violet-300 font-medium bg-violet-600/10 border border-violet-500/20 rounded px-1.5 py-0.5">
+                                <Clock className="w-3 h-3" /> {musicInfo.bpm} BPM
+                              </span>
+                            )}
+                            {musicInfo.sections != null && (
+                              <span className="text-zinc-500">{musicInfo.sections} section{musicInfo.sections !== 1 ? 's' : ''} detected</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <label className={`flex flex-col items-center gap-1.5 text-xs font-medium px-3 py-4 rounded-md border border-dashed transition-colors ${
+                      musicUploading
+                        ? 'bg-violet-600/10 border-violet-500/30 text-violet-300 cursor-wait'
+                        : 'bg-zinc-800/40 border-zinc-700/40 text-zinc-400 hover:text-zinc-200 hover:border-zinc-500 cursor-pointer'
+                    }`}>
+                      {musicUploading ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin text-violet-400" />
+                          <span className="text-[11px]">Uploading & analyzing...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-5 h-5" />
+                          <span className="text-[11px]">Upload Music</span>
+                          <span className="text-[9px] text-zinc-600 font-normal">MP3, WAV, M4A, AAC, FLAC, OGG</span>
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        accept=".mp3,.wav,.aac,.m4a,.ogg,.flac"
+                        className="hidden"
+                        disabled={musicUploading}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          setMusicUploading(true)
+                          try {
+                            const result = await uploadProjectMusic(projectId!, file)
+                            updateProjectLocal(p => ({ ...p, music_path: result.music_path }))
+                            setMusicInfo({ bpm: result.bpm, duration: result.duration, sections: result.sections })
+                            const bpmStr = result.bpm ? ` (${result.bpm} BPM)` : ''
+                            toast(`Music uploaded: ${result.filename}${bpmStr}`, 'success')
+                          } catch (err) {
+                            toast(err instanceof Error ? err.message : 'Upload failed', 'error')
+                          } finally {
+                            setMusicUploading(false)
+                            // Reset the input so the same file can be re-selected
+                            e.target.value = ''
+                          }
+                        }}
+                      />
+                    </label>
+                  )}
+                </div>
+
+                {/* Music Library Browser */}
+                {musicLibraryAvailable && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      {!musicBrowserOpen ? (
+                        <>
+                          <button
+                            onClick={() => setMusicBrowserOpen(true)}
+                            className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md bg-zinc-800/60 border border-zinc-700/40 text-zinc-400 hover:text-zinc-200 hover:border-zinc-500 transition-colors"
+                          >
+                            <Library className="w-3.5 h-3.5" />
+                            Browse Library
+                          </button>
+                          {project.music_mood && (
+                            <button
+                              onClick={handleSuggestMusic}
+                              disabled={musicSuggesting}
+                              className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md bg-violet-600/15 border border-violet-500/30 text-violet-300 hover:bg-violet-600/25 hover:border-violet-500/50 transition-colors disabled:opacity-50"
+                            >
+                              {musicSuggesting ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Sparkles className="w-3.5 h-3.5" />
+                              )}
+                              AI Suggest
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setMusicBrowserOpen(false)
+                            if (musicPreviewRef.current) {
+                              musicPreviewRef.current.pause()
+                              musicPreviewRef.current = null
+                              setMusicPreviewTrackId(null)
+                            }
+                          }}
+                          className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          Close Library
+                        </button>
+                      )}
+                    </div>
+
+                    {musicBrowserOpen && (
+                      <div className="bg-zinc-800/40 border border-zinc-700/40 rounded-md p-2.5 space-y-2">
+                        {/* Search controls */}
+                        <div className="flex gap-1.5">
+                          <input
+                            type="text"
+                            placeholder="Search music..."
+                            value={musicSearchQuery}
+                            onChange={e => setMusicSearchQuery(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') handleMusicSearch() }}
+                            className="flex-1 bg-zinc-900/60 border border-zinc-700/40 rounded px-2 py-1 text-[11px] text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-violet-500/50"
+                          />
+                          <button
+                            onClick={handleMusicSearch}
+                            disabled={musicSearching}
+                            className="px-2 py-1 bg-violet-600/20 border border-violet-500/30 rounded text-violet-300 hover:bg-violet-600/30 transition-colors disabled:opacity-50"
+                          >
+                            {musicSearching ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Search className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+                        <div className="flex gap-1.5">
+                          <select
+                            value={musicSearchMood}
+                            onChange={e => setMusicSearchMood(e.target.value)}
+                            className="flex-1 bg-zinc-900/60 border border-zinc-700/40 rounded px-1.5 py-1 text-[10px] text-zinc-300 focus:outline-none focus:border-violet-500/50"
+                          >
+                            <option value="">Any mood</option>
+                            <option value="happy">Happy</option>
+                            <option value="chill">Chill</option>
+                            <option value="epic">Epic</option>
+                            <option value="dramatic">Dramatic</option>
+                            <option value="romantic">Romantic</option>
+                            <option value="sad">Sad</option>
+                            <option value="energetic">Energetic</option>
+                            <option value="ambient">Ambient</option>
+                            <option value="dark">Dark</option>
+                            <option value="inspirational">Inspirational</option>
+                            <option value="nostalgic">Nostalgic</option>
+                            <option value="peaceful">Peaceful</option>
+                          </select>
+                          <select
+                            value={musicSearchGenre}
+                            onChange={e => setMusicSearchGenre(e.target.value)}
+                            className="flex-1 bg-zinc-900/60 border border-zinc-700/40 rounded px-1.5 py-1 text-[10px] text-zinc-300 focus:outline-none focus:border-violet-500/50"
+                          >
+                            <option value="">Any genre</option>
+                            <option value="pop">Pop</option>
+                            <option value="electronic">Electronic</option>
+                            <option value="rock">Rock</option>
+                            <option value="classical">Classical</option>
+                            <option value="acoustic">Acoustic</option>
+                            <option value="jazz">Jazz</option>
+                            <option value="hip-hop">Hip-Hop</option>
+                            <option value="ambient">Ambient</option>
+                            <option value="folk">Folk</option>
+                            <option value="indie">Indie</option>
+                            <option value="country">Country</option>
+                            <option value="blues">Blues</option>
+                            <option value="lofi">Lo-Fi</option>
+                          </select>
+                        </div>
+
+                        {/* Results list */}
+                        {musicSearchResults.length > 0 ? (
+                          <div className="max-h-64 overflow-y-auto space-y-1 pr-0.5">
+                            {musicSearchResults.map(track => (
+                              <div
+                                key={track.id}
+                                className="bg-zinc-900/50 border border-zinc-700/30 rounded-md p-2 hover:border-zinc-600/50 transition-colors"
+                              >
+                                <div className="flex items-start gap-2">
+                                  {track.image_url && (
+                                    <img
+                                      src={track.image_url}
+                                      alt=""
+                                      className="w-8 h-8 rounded shrink-0 object-cover bg-zinc-800"
+                                      onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                                    />
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-[11px] font-medium text-zinc-200 truncate">{track.title}</p>
+                                    <p className="text-[10px] text-zinc-500 truncate">{track.artist}</p>
+                                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                      <span className="text-[9px] text-zinc-500 tabular-nums">
+                                        {Math.floor(track.duration / 60)}:{String(track.duration % 60).padStart(2, '0')}
+                                      </span>
+                                      {track.bpm && (
+                                        <span className="text-[9px] text-zinc-500">{track.bpm} BPM</span>
+                                      )}
+                                      {track.genre && (
+                                        <span className="text-[9px] px-1 py-0.5 rounded bg-zinc-800/80 text-zinc-400">{track.genre}</span>
+                                      )}
+                                      <span className="text-[8px] text-zinc-600">{track.license}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1.5 mt-1.5">
+                                  <button
+                                    onClick={() => handleMusicPreview(track)}
+                                    className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+                                      musicPreviewTrackId === track.id
+                                        ? 'bg-violet-600/20 text-violet-300 border border-violet-500/30'
+                                        : 'text-zinc-400 hover:text-zinc-200 border border-zinc-700/40 hover:border-zinc-600'
+                                    }`}
+                                  >
+                                    {musicPreviewTrackId === track.id ? (
+                                      <><Pause className="w-3 h-3" /> Stop</>
+                                    ) : (
+                                      <><Play className="w-3 h-3" /> Preview</>
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => handleSelectLibraryTrack(track)}
+                                    disabled={musicSelecting === track.id}
+                                    className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-violet-600/15 border border-violet-500/25 text-violet-300 hover:bg-violet-600/25 transition-colors disabled:opacity-50"
+                                  >
+                                    {musicSelecting === track.id ? (
+                                      <><Loader2 className="w-3 h-3 animate-spin" /> Downloading...</>
+                                    ) : (
+                                      <><Download className="w-3 h-3" /> Use Track</>
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : musicSearching ? (
+                          <div className="flex items-center justify-center py-6 text-zinc-500">
+                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            <span className="text-[11px]">Searching...</span>
+                          </div>
+                        ) : (
+                          <p className="text-center text-[10px] text-zinc-600 py-4">
+                            Search for royalty-free music or use AI Suggest
+                          </p>
+                        )}
+                        <p className="text-[8px] text-zinc-700 text-center">
+                          Music provided by Jamendo under Creative Commons licenses
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-[10px] font-medium text-zinc-500 uppercase tracking-wide mb-1.5">
+                    Music Volume: {Math.round((project.music_volume || 0.3) * 100)}%
+                  </label>
+                  <input
+                    type="range" min={0} max={1} step={0.05}
+                    value={project.music_volume || 0.3}
+                    onChange={(e) => updateProjectLocal(p => ({ ...p, music_volume: parseFloat(e.target.value) }))}
+                    className="w-full accent-violet-500"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Renders tab */}
+            {sidePanel === 'renders' && (
+              <div className="p-3 space-y-3">
+                {previewVideoUrl && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-medium text-zinc-400 uppercase tracking-wide">Playback</span>
+                      <div className="flex items-center gap-1">
+                        <a href={previewVideoUrl} download className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-zinc-200 transition-colors">
+                          <Download className="w-3 h-3" /> Download
+                        </a>
+                        <button onClick={() => setPreviewVideoUrl(null)} className="text-zinc-600 hover:text-zinc-400 transition-colors">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                    <video key={previewVideoUrl} src={previewVideoUrl} controls autoPlay className="w-full rounded-lg bg-black" />
+                  </div>
+                )}
+                <div>
+                  <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide">Export History</span>
+                  <div className="mt-1.5 space-y-1">
+                    {project.render_history.slice().reverse().map((r) => (
+                      <button
+                        key={r.id}
+                        onClick={() => setPreviewVideoUrl(r.output_path)}
+                        className={`w-full flex items-center gap-2 text-[11px] px-2.5 py-1.5 rounded-md border transition-colors ${
+                          previewVideoUrl === r.output_path
+                            ? 'text-violet-300 bg-violet-600/20 border-violet-500/40'
+                            : 'text-zinc-400 hover:text-zinc-200 bg-zinc-800/60 hover:bg-zinc-700/60 border-zinc-700/40'
+                        }`}
+                      >
+                        <Play className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{new Date(r.rendered_at * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                        <span className="text-zinc-600 ml-auto shrink-0">{r.resolution}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Bottom toolbar */}
-      <div className="shrink-0 bg-zinc-900/90 border-t border-zinc-800 px-4 py-2 flex items-center gap-3">
-        {/* Text elements */}
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] text-zinc-500 uppercase tracking-wide">Text:</span>
+      {/* ===== BOTTOM: Timeline ===== */}
+      <div className="shrink-0 flex flex-col border-t border-zinc-800" style={{ height: '40%', minHeight: '200px' }}>
+        {/* Timeline toolbar */}
+        <div className="shrink-0 flex items-center gap-2 bg-zinc-900/80 border-b border-zinc-800/80 px-3 py-1">
+          <span className="text-[10px] text-zinc-500">Zoom</span>
+          <input type="range" min={0.3} max={3} step={0.1} value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} className="w-20 accent-violet-500" />
+          <span className="text-[10px] text-zinc-500 tabular-nums w-8">{Math.round(zoom * 100)}%</span>
+          <div className="w-px h-3 bg-zinc-800 mx-1" />
+          <span className="text-[10px] text-red-400/70 tabular-nums">
+            {Math.floor(playheadPos / 60)}:{String(Math.floor(playheadPos % 60)).padStart(2, '0')}.{String(Math.floor((playheadPos % 1) * 10)).padStart(1, '0')}
+          </span>
+          <div className="w-px h-3 bg-zinc-800 mx-1" />
+          <span className="text-[10px] text-zinc-400 capitalize">{project.theme.replace('_', ' ')}</span>
+          {project.music_path && (
+            <>
+              <div className="w-px h-3 bg-zinc-800 mx-1" />
+              <span className="text-[10px] text-zinc-500 flex items-center gap-1">
+                <Music className="w-3 h-3" /> {project.music_path.split('/').pop()?.slice(0, 15)}
+              </span>
+            </>
+          )}
+          <div className="flex-1" />
+          {/* Quick add buttons */}
+          <button onClick={() => { setMediaBrowserOpen(true); setSidePanel('media') }} className="flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 border border-zinc-700/50 transition-colors">
+            <ImagePlus className="w-3 h-3" /> Media
+          </button>
           {[
             { style: 'title', label: 'Title' },
-            { style: 'subtitle', label: 'Subtitle' },
-            { style: 'caption', label: 'Caption' },
-            { style: 'lower_third', label: 'Lower Third' },
+            { style: 'subtitle', label: 'Sub' },
+            { style: 'lower_third', label: 'L3rd' },
           ].map(({ style, label }) => (
-            <button
-              key={style}
-              onClick={() => addTextElement(style)}
-              className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-md bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 border border-zinc-700/50 transition-colors"
-            >
-              <Type className="w-3 h-3" />
-              {label}
+            <button key={style} onClick={() => addTextElement(style)} className="flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 border border-zinc-700/50 transition-colors">
+              <Type className="w-3 h-3" /> {label}
             </button>
           ))}
         </div>
 
-        <div className="w-px h-5 bg-zinc-800" />
+        {/* Timeline content */}
+        {(() => {
+          const timelineWidth = Math.max(800, timelineDuration * pixelsPerSecond + 100)
+          const hasContent = project.timeline.tracks.length > 0 && (clipCount > 0 || project.timeline.tracks.some(t => t.text_elements.length > 0))
+          const tickInterval = zoom < 0.8 ? 5 : zoom < 1.5 ? 2 : 1
 
-        {/* Quick actions */}
-        <button
-          onClick={() => setMediaBrowserOpen(true)}
-          className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-md bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 border border-zinc-700/50 transition-colors"
-        >
-          <ImagePlus className="w-3 h-3" /> Add Media
-        </button>
+          if (!hasContent) {
+            return (
+              <div className="flex-1 flex flex-col items-center justify-center text-zinc-600 gap-3">
+                <Layers className="w-10 h-10 opacity-20" />
+                <p className="text-sm font-medium text-zinc-400">Empty Timeline</p>
+                <p className="text-xs text-zinc-600 max-w-sm text-center">
+                  Write a creative brief and click "AI Arrange", or add media manually.
+                </p>
+                {isArranging ? (
+                  <div className="w-64 space-y-2">
+                    <div className="flex items-center gap-2 justify-center">
+                      <Loader2 className="w-4 h-4 animate-spin text-violet-400" />
+                      <span className="text-xs text-zinc-300">{arrangeJob?.message || 'Starting...'}</span>
+                    </div>
+                    <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-violet-500 rounded-full transition-all duration-500 ease-out"
+                        style={{ width: `${arrangeJob?.progress || 0}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <button onClick={() => { setMediaBrowserOpen(true); setSidePanel('media') }} className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-violet-600/20 text-violet-300 hover:bg-violet-600/30 border border-violet-500/30 transition-colors">
+                      <ImagePlus className="w-3.5 h-3.5" /> Add Media
+                    </button>
+                    {project.prompt && (
+                      <button onClick={() => previewMut.mutate()} disabled={previewMut.isPending} className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700 transition-colors">
+                        <Sparkles className="w-3.5 h-3.5" /> AI Arrange
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          }
 
-        {/* Spacer */}
-        <div className="flex-1" />
+          return (
+            <div className="flex-1 flex min-h-0">
+              {/* Fixed track headers */}
+              <div className="w-36 shrink-0 flex flex-col">
+                <div className="h-6 bg-zinc-900/80 border-r border-zinc-800 border-b border-b-zinc-800/80" />
+                <div className="flex-1 overflow-y-hidden">
+                  {project.timeline.tracks.map(track => (
+                    <TrackHeader key={track.id} track={track} onToggleMute={() => toggleTrackMute(track.id)} onToggleLock={() => toggleTrackLock(track.id)} />
+                  ))}
+                </div>
+              </div>
 
-        {/* Keyboard hints */}
-        <div className="flex items-center gap-3 text-[9px] text-zinc-600">
-          <span><kbd className="px-1 py-0.5 rounded bg-zinc-800/80 text-zinc-500">Del</kbd> Remove</span>
-          <span><kbd className="px-1 py-0.5 rounded bg-zinc-800/80 text-zinc-500">Esc</kbd> Deselect</span>
-          <span><kbd className="px-1 py-0.5 rounded bg-zinc-800/80 text-zinc-500">Ctrl+Z</kbd> Undo</span>
-          <span><kbd className="px-1 py-0.5 rounded bg-zinc-800/80 text-zinc-500">M</kbd> Media</span>
-        </div>
+              {/* Scrollable timeline */}
+              <div className="flex-1 overflow-auto min-w-0" ref={timelineScrollRef}>
+                <div style={{ width: `${timelineWidth}px` }}>
+                  {/* Time ruler */}
+                  <div
+                    className="relative h-6 bg-zinc-900/60 border-b border-zinc-800/80 sticky top-0 z-10 cursor-pointer"
+                    onPointerDown={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect()
+                      const updatePos = (clientX: number) => {
+                        const x = clientX - rect.left
+                        setPlayheadPos(Math.max(0, Math.round(x / pixelsPerSecond * 4) / 4))
+                      }
+                      updatePos(e.clientX)
+                      e.currentTarget.setPointerCapture(e.pointerId)
+                      const el = e.currentTarget
+                      const onMove = (ev: PointerEvent) => updatePos(ev.clientX)
+                      const onUp = () => { el.removeEventListener('pointermove', onMove); el.removeEventListener('pointerup', onUp) }
+                      el.addEventListener('pointermove', onMove)
+                      el.addEventListener('pointerup', onUp)
+                    }}
+                  >
+                    {Array.from({ length: Math.ceil(timelineDuration) + 1 }).map((_, i) => (
+                      <div key={i} className="absolute top-0 bottom-0 flex flex-col items-center" style={{ left: `${i * pixelsPerSecond}px` }}>
+                        <div className="w-px h-2 bg-zinc-600" />
+                        {i % tickInterval === 0 && (
+                          <span className="text-[8px] text-zinc-600 tabular-nums mt-0.5">
+                            {Math.floor(i / 60)}:{String(i % 60).padStart(2, '0')}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                    <div className="absolute top-0 bottom-0 z-20 pointer-events-none" style={{ left: `${playheadPos * pixelsPerSecond}px` }}>
+                      <div className="w-0 h-0 border-l-[5px] border-r-[5px] border-t-[6px] border-l-transparent border-r-transparent border-t-red-500 -translate-x-[5px]" />
+                    </div>
+                  </div>
+
+                  {/* Track clip areas */}
+                  <div className="relative" style={{ minHeight: `${project.timeline.tracks.length * TRACK_HEIGHT}px` }}>
+                    {Array.from({ length: Math.ceil(timelineDuration) + 1 }).map((_, i) => (
+                      <div key={i} className="absolute top-0 bottom-0 w-px bg-zinc-800/50" style={{ left: `${i * pixelsPerSecond}px` }} />
+                    ))}
+                    <div className="absolute top-0 bottom-0 w-px bg-red-500 z-20 pointer-events-none" style={{ left: `${playheadPos * pixelsPerSecond}px` }} />
+                    {project.timeline.tracks.map(track => (
+                      <TrackClips
+                        key={track.id}
+                        track={track}
+                        pixelsPerSecond={pixelsPerSecond}
+                        timelineWidth={timelineWidth}
+                        selectedClipId={selectedClipId || selectedTextId}
+                        onSelectClip={(id) => {
+                          const isText = track.text_elements.some(te => te.id === id)
+                          if (isText) handleSelectText(id)
+                          else handleSelectClip(id)
+                        }}
+                        onMoveClip={moveClip}
+                        onResizeClip={resizeClip}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
+      </div>
+
+      {/* Bottom status bar */}
+      <div className="shrink-0 bg-zinc-900/90 border-t border-zinc-800 px-3 py-1 flex items-center gap-3 text-[9px] text-zinc-600">
+        <span><kbd className="px-1 py-0.5 rounded bg-zinc-800/80 text-zinc-500">Space</kbd> Play</span>
+        <span><kbd className="px-1 py-0.5 rounded bg-zinc-800/80 text-zinc-500">Del</kbd> Remove</span>
+        <span><kbd className="px-1 py-0.5 rounded bg-zinc-800/80 text-zinc-500">Ctrl+Z</kbd> Undo</span>
+        <span><kbd className="px-1 py-0.5 rounded bg-zinc-800/80 text-zinc-500">M</kbd> Media</span>
+        <span><kbd className="px-1 py-0.5 rounded bg-zinc-800/80 text-zinc-500">Ctrl+S</kbd> Save</span>
       </div>
     </div>
   )

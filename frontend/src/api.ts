@@ -232,6 +232,110 @@ export interface MusicUploadResponse {
   filename: string
 }
 
+export interface ProjectMusicUploadResponse {
+  music_path: string
+  filename: string
+  bpm?: number
+  duration?: number
+  sections?: number
+}
+
+export async function uploadProjectMusic(projectId: string, file: File): Promise<ProjectMusicUploadResponse> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await fetch(`${BASE}/api/projects/${projectId}/music`, {
+    method: 'POST',
+    body: formData,
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.detail || `Music upload failed: ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function deleteProjectMusic(projectId: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/projects/${projectId}/music`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.detail || `Failed to remove music: ${res.status}`)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Music Library (Jamendo)
+// ---------------------------------------------------------------------------
+
+export interface MusicTrack {
+  id: string
+  title: string
+  artist: string
+  duration: number
+  bpm: number | null
+  genre: string
+  mood: string
+  preview_url: string
+  download_url: string
+  license: string
+  tags: string[]
+  image_url: string
+}
+
+export interface MusicSearchResponse {
+  tracks: MusicTrack[]
+  count: number
+}
+
+export interface MusicSuggestResponse {
+  tracks: MusicTrack[]
+  count: number
+  music_mood: string
+}
+
+export async function searchMusicLibrary(params: {
+  query?: string
+  mood?: string
+  genre?: string
+  min_duration?: number
+  max_duration?: number
+  limit?: number
+}): Promise<MusicSearchResponse> {
+  const q = new URLSearchParams()
+  if (params.query) q.set('query', params.query)
+  if (params.mood) q.set('mood', params.mood)
+  if (params.genre) q.set('genre', params.genre)
+  if (params.min_duration) q.set('min_duration', String(params.min_duration))
+  if (params.max_duration) q.set('max_duration', String(params.max_duration))
+  if (params.limit) q.set('limit', String(params.limit))
+  return request<MusicSearchResponse>(`/api/music/search?${q}`)
+}
+
+export const fetchMusicLibraryStatus = () =>
+  request<{ available: boolean }>('/api/music/status')
+
+export async function selectLibraryMusic(
+  projectId: string,
+  trackId: string,
+): Promise<ProjectMusicUploadResponse> {
+  return request<ProjectMusicUploadResponse>(
+    `/api/projects/${projectId}/music/library`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ track_id: trackId }),
+    },
+  )
+}
+
+export async function suggestMusic(
+  projectId: string,
+): Promise<MusicSuggestResponse> {
+  return request<MusicSuggestResponse>(
+    `/api/projects/${projectId}/music/suggest`,
+  )
+}
+
 export interface CustomShotInput {
   uuid: string
   start_time: number
@@ -362,7 +466,7 @@ export const deleteProjectApi = (id: string) =>
   request<{ deleted: boolean }>(`/api/projects/${id}`, { method: 'DELETE' })
 
 export const projectPreview = (id: string) =>
-  request<ProjectData>(`/api/projects/${id}/preview`, { method: 'POST' })
+  request<{ job_id: string }>(`/api/projects/${id}/preview`, { method: 'POST' })
 
 export const projectRender = (id: string) =>
   request<{ job_id: string }>(`/api/projects/${id}/render`, { method: 'POST' })

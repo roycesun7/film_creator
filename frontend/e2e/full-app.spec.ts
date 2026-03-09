@@ -466,3 +466,159 @@ test.describe('Upload flow', () => {
     }
   });
 });
+
+// ============================================================
+// 7. AI Arrange flow
+// ============================================================
+test.describe('AI Arrange flow', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto(`/project/${PROJECT_ID}`);
+    // Wait for the project to load (side panel tabs should appear)
+    await page.waitForSelector('button[title="Brief"]', { timeout: 15_000 });
+  });
+
+  test('Brief tab shows prompt textarea', async ({ page }) => {
+    // Brief tab is the default active tab
+    const textarea = page.locator('textarea[placeholder="Describe what this video should be about..."]');
+    await expect(textarea).toBeVisible();
+    // The test project has a prompt already filled in
+    const value = await textarea.inputValue();
+    expect(value.length).toBeGreaterThan(0);
+  });
+
+  test('AI Arrange button exists and is clickable', async ({ page }) => {
+    // Make sure we're on the Brief tab (default)
+    const arrangeBtn = page.locator('button:has-text("AI Arrange")').first();
+    // The button may be the main one in the brief panel, or the one in the empty state
+    await expect(arrangeBtn).toBeVisible();
+    await expect(arrangeBtn).toBeEnabled();
+    // Verify it has the correct title attribute for the keyboard shortcut
+    const btnWithTitle = page.locator('button[title="AI Arrange (Ctrl+Enter)"]');
+    const hasShortcutBtn = await btnWithTitle.isVisible().catch(() => false);
+    // At least one AI Arrange button should exist
+    expect(await arrangeBtn.isVisible() || hasShortcutBtn).toBeTruthy();
+  });
+
+  test('narrative summary displays after project has one', async ({ page }) => {
+    // The test project should already have a narrative_summary from a previous arrange
+    // It renders as an italic paragraph in the Brief panel
+    const narrativeEl = page.locator('p.italic.text-zinc-500');
+    const hasNarrative = await narrativeEl.isVisible().catch(() => false);
+    if (hasNarrative) {
+      const text = await narrativeEl.textContent();
+      expect(text!.length).toBeGreaterThan(10);
+    } else {
+      // If no narrative yet, at least the Ctrl+Enter hint or arrange button should be visible
+      const hasHint = await page.locator('kbd:has-text("Ctrl+Enter")').isVisible().catch(() => false);
+      const hasArrangeBtn = await page.locator('button:has-text("AI Arrange")').first().isVisible().catch(() => false);
+      expect(hasHint || hasArrangeBtn).toBeTruthy();
+    }
+  });
+
+  test('music mood displays if present', async ({ page }) => {
+    // Navigate to Settings tab to check for music mood
+    await page.locator('button[title="Settings"]').click();
+    await expect(page.locator('text=Background Music')).toBeVisible();
+
+    // The music_mood drives the "AI Suggest" button visibility in the music section
+    // If the project has a music_mood, the AI Suggest button should be visible
+    const aiSuggestBtn = page.locator('button:has-text("AI Suggest")');
+    const hasAiSuggest = await aiSuggestBtn.isVisible().catch(() => false);
+
+    // Also check the API directly for music_mood
+    const projectResp = await page.request.get(`http://localhost:8000/api/projects/${PROJECT_ID}`);
+    if (projectResp.ok()) {
+      const project = await projectResp.json();
+      if (project.music_mood) {
+        // If the project has music_mood, the AI Suggest button should be visible
+        // (it's conditionally rendered when music_mood exists)
+        expect(hasAiSuggest).toBeTruthy();
+      }
+    }
+  });
+
+  test('timeline clips have transition indicators', async ({ page }) => {
+    // Check if the project has clips on the timeline via the API
+    const projectResp = await page.request.get(`http://localhost:8000/api/projects/${PROJECT_ID}`);
+    if (!projectResp.ok()) {
+      test.skip(true, 'API server not reachable');
+      return;
+    }
+    const project = await projectResp.json();
+    const videoTracks = (project.timeline?.tracks || []).filter((t: any) => t.type === 'video');
+    const clips = videoTracks[0]?.clips || [];
+
+    if (clips.length === 0) {
+      // No clips yet, skip the rest
+      expect(true).toBeTruthy();
+      return;
+    }
+
+    // Clips are rendered as absolute-positioned divs in the timeline.
+    // Each clip with a non-"none" transition has transition info visible in the Inspector.
+    // Click the first clip to select it and open the Inspector.
+    const clipElements = page.locator('.absolute.top-1.bottom-1.rounded-md.border');
+    const clipCount = await clipElements.count();
+    expect(clipCount).toBeGreaterThan(0);
+
+    // Click on the first clip to select it
+    await clipElements.first().click();
+
+    // Switch to the Inspect tab
+    await page.locator('button[title="Inspect"]').click();
+
+    // The Inspector should show transition controls (select with options like Crossfade, Fade Black, etc.)
+    const transitionLabel = page.locator('label:has-text("Transition")');
+    await expect(transitionLabel.first()).toBeVisible();
+
+    // The transition type selector should be visible
+    const transitionSelect = page.locator('select').filter({ has: page.locator('option[value="crossfade"]') });
+    await expect(transitionSelect).toBeVisible();
+  });
+
+  test('clip role badges are visible', async ({ page }) => {
+    // Check if the project has clips via the API
+    const projectResp = await page.request.get(`http://localhost:8000/api/projects/${PROJECT_ID}`);
+    if (!projectResp.ok()) {
+      test.skip(true, 'API server not reachable');
+      return;
+    }
+    const project = await projectResp.json();
+    const videoTracks = (project.timeline?.tracks || []).filter((t: any) => t.type === 'video');
+    const clips = videoTracks[0]?.clips || [];
+
+    if (clips.length === 0) {
+      expect(true).toBeTruthy();
+      return;
+    }
+
+    // Each timeline clip displays its role as capitalized text (e.g., "Opener", "Highlight")
+    // These are rendered as <p> elements inside the clip component
+    const roleNames = ['Opener', 'Highlight', 'B-roll', 'Transition', 'Closer'];
+    let foundRoles = 0;
+
+    for (const role of roleNames) {
+      const roleEls = page.locator(`.absolute.top-1.bottom-1 p.text-\\[10px\\]:has-text("${role}")`);
+      const count = await roleEls.count().catch(() => 0);
+      if (count > 0) foundRoles++;
+    }
+
+    // At least one role label should be visible on the timeline clips
+    expect(foundRoles).toBeGreaterThan(0);
+
+    // Also verify by clicking a clip and checking the Inspector role selector
+    const clipElements = page.locator('.absolute.top-1.bottom-1.rounded-md.border');
+    if (await clipElements.count() > 0) {
+      await clipElements.first().click();
+      await page.locator('button[title="Inspect"]').click();
+
+      // The Inspector should show the Role selector
+      const roleLabel = page.locator('label:has-text("Role")');
+      await expect(roleLabel).toBeVisible();
+
+      // The role select dropdown should have the known role options
+      const roleSelect = page.locator('select').filter({ has: page.locator('option[value="opener"]') });
+      await expect(roleSelect).toBeVisible();
+    }
+  });
+});

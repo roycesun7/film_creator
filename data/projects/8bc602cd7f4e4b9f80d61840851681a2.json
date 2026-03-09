@@ -1,0 +1,523 @@
+{
+  "id": "8bc602cd7f4e4b9f80d61840851681a2",
+  "name": "Summer '24: Utah Intern Adventures",
+  "prompt": "Make a highlight reel, upbeat and energetic, of my time as an intern in the summer of 2024 in Utah. ",
+  "created_at": 1773014448.036691,
+  "updated_at": 1773015867.386176,
+  "theme": "minimal",
+  "resolution": [
+    1920,
+    1080
+  ],
+  "fps": 30,
+  "music_path": "/Users/kzoyce/Code_Projects/video-composer/downloads/music/jamendo_887205_Episode 4 Pt 3.mp3",
+  "music_volume": 0.3,
+  "timeline": {
+    "tracks": [
+      {
+        "id": "653e4b0a",
+        "name": "Main Video",
+        "type": "video",
+        "clips": [
+          {
+            "id": "9f9a3f37fc52",
+            "media_uuid": "5581b651-1096-4e04-b4ea-91e376f0f622",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/5581b651-1096-4e04-b4ea-91e376f0f622.mov",
+            "media_type": "video",
+            "in_point": 0.0,
+            "out_point": 3.5,
+            "position": 3.0,
+            "duration": 3.5,
+            "volume": 1.0,
+            "effects": [],
+            "transition": {
+              "type": "fade_black",
+              "duration": 0.5
+            },
+            "role": "opener",
+            "reason": "Perfect opener - person making peace sign on desert road captures the adventurous spirit immediately"
+          },
+          {
+            "id": "90ac3eb7b7d6",
+            "media_uuid": "735f035f-c0ab-4c1f-8636-cdca9b78d4ab",
+            "media_path": "/Users/kzoyce/Code_Projects/video-composer/uploads/735f035f-c0ab-4c1f-8636-cdca9b78d4ab.jpeg",
+            "media_type": "photo",
+            "in_point": 3.5,
+            "out_point": 7.0,
+            "position": 6.5,
+            "duration": 3.5,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "ken_burns",
+                "params": {}
+              }
+            ],
+            "transition": {
+              "type": "crossfade",
+              "duration": 0.4
+            },
+            "role": "b-roll",
+            "reason": "Dramatic golden hour sky provides beautiful atmospheric transition from desert opener"
+          },
+          {
+            "id": "82998d59494c",
+            "media_uuid": "266f1485-653d-4ed9-b69c-82065aaa38ec",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/266f1485-653d-4ed9-b69c-82065aaa38ec.mov",
+            "media_type": "video",
+            "in_point": 1.0,
+            "out_point": 4.0,
+            "position": 10.0,
+            "duration": 3.0,
+            "volume": 1.0,
+            "effects": [],
+            "transition": {
+              "type": "crossfade",
+              "duration": 0.4
+            },
+            "role": "highlight",
+            "reason": "Rifle shooting practice showcases the adventurous activities perfectly"
+          },
+          {
+            "id": "8047aad8f1a9",
+            "media_uuid": "6a3a53e0-5360-45ea-8d5c-ce81bfcc12b9",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/6a3a53e0-5360-45ea-8d5c-ce81bfcc12b9.jpeg",
+            "media_type": "photo",
+            "in_point": 11.0,
+            "out_point": 13.5,
+            "position": 13.0,
+            "duration": 2.5,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "ken_burns",
+                "params": {}
+              }
+            ],
+            "transition": {
+              "type": "crossfade",
+              "duration": 0.4
+            },
+            "role": "b-roll",
+            "reason": "Ammunition detail shot adds to the shooting range narrative"
+          },
+          {
+            "id": "797035691f8c",
+            "media_uuid": "a83c15fa-8725-41fa-be6b-d87d983d60d8",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/a83c15fa-8725-41fa-be6b-d87d983d60d8.mov",
+            "media_type": "video",
+            "in_point": 5.0,
+            "out_point": 8.5,
+            "position": 15.5,
+            "duration": 3.5,
+            "volume": 1.0,
+            "effects": [],
+            "transition": {
+              "type": "crossfade",
+              "duration": 0.4
+            },
+            "role": "highlight",
+            "reason": "Group shooting with scoped rifle shows the social aspect of the activity"
+          },
+          {
+            "id": "8b40069f019a",
+            "media_uuid": "1d1cc63c-e01c-4051-9af8-9edd807e7590",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/1d1cc63c-e01c-4051-9af8-9edd807e7590.mov",
+            "media_type": "video",
+            "in_point": 1.0,
+            "out_point": 4.0,
+            "position": 19.0,
+            "duration": 3.0,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "speed",
+                "params": {
+                  "rate": 0.8
+                }
+              }
+            ],
+            "transition": {
+              "type": "crossfade",
+              "duration": 0.4
+            },
+            "role": "b-roll",
+            "reason": "Golf swing at indoor facility adds variety to outdoor activities"
+          },
+          {
+            "id": "a40f57233c3a",
+            "media_uuid": "7b181152-1521-495f-b547-60f6e5b94803",
+            "media_path": "/Users/kzoyce/Code_Projects/video-composer/uploads/7b181152-1521-495f-b547-60f6e5b94803.mov",
+            "media_type": "video",
+            "in_point": 2.0,
+            "out_point": 5.5,
+            "position": 22.0,
+            "duration": 3.5,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "speed",
+                "params": {
+                  "rate": 0.7
+                }
+              }
+            ],
+            "transition": {
+              "type": "crossfade",
+              "duration": 0.4
+            },
+            "role": "highlight",
+            "reason": "Beautiful golden hour golf swing captures the recreational side perfectly"
+          },
+          {
+            "id": "bf795131c319",
+            "media_uuid": "809c4149-2ab2-4c8a-b78b-a4bf0592d475",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/809c4149-2ab2-4c8a-b78b-a4bf0592d475.jpeg",
+            "media_type": "photo",
+            "in_point": 24.5,
+            "out_point": 27.5,
+            "position": 25.5,
+            "duration": 3.0,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "ken_burns",
+                "params": {}
+              }
+            ],
+            "transition": {
+              "type": "crossfade",
+              "duration": 0.4
+            },
+            "role": "highlight",
+            "reason": "Delicious fried chicken sandwich represents the food culture perfectly"
+          },
+          {
+            "id": "64f16caabc20",
+            "media_uuid": "91905bac-14ef-4c88-88d7-1459e37fba29",
+            "media_path": "/Users/kzoyce/Code_Projects/video-composer/uploads/91905bac-14ef-4c88-88d7-1459e37fba29.jpeg",
+            "media_type": "photo",
+            "in_point": 27.5,
+            "out_point": 30.0,
+            "position": 28.5,
+            "duration": 2.5,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "ken_burns",
+                "params": {}
+              }
+            ],
+            "transition": {
+              "type": "crossfade",
+              "duration": 0.4
+            },
+            "role": "b-roll",
+            "reason": "BBQ restaurant interior sets the scene for the food experience"
+          },
+          {
+            "id": "b04610ad7c1f",
+            "media_uuid": "07331632-ccdc-4fde-a4c5-14db17ef1c3d",
+            "media_path": "/Users/kzoyce/Code_Projects/video-composer/uploads/07331632-ccdc-4fde-a4c5-14db17ef1c3d.jpeg",
+            "media_type": "photo",
+            "in_point": 30.0,
+            "out_point": 33.0,
+            "position": 31.0,
+            "duration": 3.0,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "ken_burns",
+                "params": {}
+              }
+            ],
+            "transition": {
+              "type": "crossfade",
+              "duration": 0.4
+            },
+            "role": "highlight",
+            "reason": "BBQ platter showcases the incredible food quality"
+          },
+          {
+            "id": "1de2b400fbc5",
+            "media_uuid": "d1fa278e-30c9-4a64-aea3-69c3cdb3963e",
+            "media_path": "/Users/kzoyce/Code_Projects/video-composer/uploads/d1fa278e-30c9-4a64-aea3-69c3cdb3963e.jpeg",
+            "media_type": "photo",
+            "in_point": 33.0,
+            "out_point": 36.5,
+            "position": 34.0,
+            "duration": 3.5,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "ken_burns",
+                "params": {}
+              }
+            ],
+            "transition": {
+              "type": "crossfade",
+              "duration": 0.4
+            },
+            "role": "b-roll",
+            "reason": "Mid-meal scene shows the casual dining experience"
+          },
+          {
+            "id": "bf2bab0d1722",
+            "media_uuid": "4e24a926-72c3-49ba-9bac-1954a0f67880",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/4e24a926-72c3-49ba-9bac-1954a0f67880.jpeg",
+            "media_type": "photo",
+            "in_point": 36.5,
+            "out_point": 39.0,
+            "position": 37.5,
+            "duration": 2.5,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "ken_burns",
+                "params": {}
+              }
+            ],
+            "transition": {
+              "type": "crossfade",
+              "duration": 0.3
+            },
+            "role": "highlight",
+            "reason": "Four friends at food hall begins the celebration peak with friendship"
+          },
+          {
+            "id": "1f6ec3f3f1c0",
+            "media_uuid": "e1870dd9-fc5a-42a1-9434-3590ecb76873",
+            "media_path": "/Users/kzoyce/Code_Projects/video-composer/uploads/e1870dd9-fc5a-42a1-9434-3590ecb76873.png",
+            "media_type": "photo",
+            "in_point": 39.0,
+            "out_point": 41.5,
+            "position": 40.0,
+            "duration": 2.5,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "ken_burns",
+                "params": {}
+              }
+            ],
+            "transition": {
+              "type": "crossfade",
+              "duration": 0.3
+            },
+            "role": "highlight",
+            "reason": "Group selfie captures the joy and social bonding"
+          },
+          {
+            "id": "978812bc4a0a",
+            "media_uuid": "7affea0b-e1a7-4693-8706-d647ee0ed321",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/7affea0b-e1a7-4693-8706-d647ee0ed321.png",
+            "media_type": "photo",
+            "in_point": 41.5,
+            "out_point": 44.0,
+            "position": 42.5,
+            "duration": 2.5,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "ken_burns",
+                "params": {}
+              }
+            ],
+            "transition": {
+              "type": "none",
+              "duration": 0.0
+            },
+            "role": "highlight",
+            "reason": "Achievement photo with medals - the pinnacle of success"
+          },
+          {
+            "id": "e52d04ccd139",
+            "media_uuid": "0c61e7f7-85c1-4166-ba18-49a222547ee2",
+            "media_path": "/Users/kzoyce/Code_Projects/video-composer/uploads/0c61e7f7-85c1-4166-ba18-49a222547ee2.png",
+            "media_type": "photo",
+            "in_point": 44.0,
+            "out_point": 46.0,
+            "position": 45.0,
+            "duration": 2.0,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "ken_burns",
+                "params": {}
+              }
+            ],
+            "transition": {
+              "type": "none",
+              "duration": 0.0
+            },
+            "role": "highlight",
+            "reason": "Another celebration group shot maintaining high energy"
+          },
+          {
+            "id": "1eb5addee077",
+            "media_uuid": "2a73800d-a8af-4fdd-95b6-9ec08d7223ad",
+            "media_path": "/Users/kzoyce/Code_Projects/video-composer/uploads/2a73800d-a8af-4fdd-95b6-9ec08d7223ad.png",
+            "media_type": "photo",
+            "in_point": 46.0,
+            "out_point": 48.0,
+            "position": 47.0,
+            "duration": 2.0,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "ken_burns",
+                "params": {}
+              }
+            ],
+            "transition": {
+              "type": "none",
+              "duration": 0.0
+            },
+            "role": "highlight",
+            "reason": "Continuing the celebratory momentum with more group joy"
+          },
+          {
+            "id": "05a76d8c1ecb",
+            "media_uuid": "f7b8de5c-2f74-4ab0-b5dc-22214b9dbfff",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/f7b8de5c-2f74-4ab0-b5dc-22214b9dbfff.png",
+            "media_type": "photo",
+            "in_point": 48.0,
+            "out_point": 50.5,
+            "position": 49.0,
+            "duration": 2.5,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "ken_burns",
+                "params": {}
+              }
+            ],
+            "transition": {
+              "type": "none",
+              "duration": 0.0
+            },
+            "role": "highlight",
+            "reason": "Peak celebration continues with largest group shot"
+          },
+          {
+            "id": "8cdcf0a77e1a",
+            "media_uuid": "b033b9ff-f3b9-42f2-8005-52be1cdf438e",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/b033b9ff-f3b9-42f2-8005-52be1cdf438e.jpeg",
+            "media_type": "photo",
+            "in_point": 50.5,
+            "out_point": 53.0,
+            "position": 51.5,
+            "duration": 2.5,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "ken_burns",
+                "params": {}
+              }
+            ],
+            "transition": {
+              "type": "crossfade",
+              "duration": 0.4
+            },
+            "role": "highlight",
+            "reason": "Final celebration shot in recreational facility caps the peak"
+          },
+          {
+            "id": "2d9869f7f014",
+            "media_uuid": "584d48cf-f1f6-473b-811d-5ebf16684a3b",
+            "media_path": "https://wuevigbacntyssfreggh.supabase.co/storage/v1/object/public/media/584d48cf-f1f6-473b-811d-5ebf16684a3b.jpeg",
+            "media_type": "photo",
+            "in_point": 53.0,
+            "out_point": 58.0,
+            "position": 54.0,
+            "duration": 5.0,
+            "volume": 1.0,
+            "effects": [
+              {
+                "type": "ken_burns",
+                "params": {}
+              }
+            ],
+            "transition": {
+              "type": "fade_black",
+              "duration": 0.5
+            },
+            "role": "closer",
+            "reason": "Last meal at Cafe Trang provides perfect nostalgic conclusion to the summer adventure"
+          }
+        ],
+        "text_elements": [],
+        "muted": false,
+        "locked": false,
+        "volume": 1.0
+      },
+      {
+        "id": "b4b4d303",
+        "name": "Titles",
+        "type": "text",
+        "clips": [],
+        "text_elements": [
+          {
+            "id": "f7bfe3249912",
+            "text": "Summer '24: Utah Intern Adventures",
+            "position": 0.0,
+            "duration": 3.0,
+            "x": 0.5,
+            "y": 0.5,
+            "font_size": 56,
+            "font_family": "Helvetica",
+            "color": "#FFFFFF",
+            "bg_color": "",
+            "animation": "fade",
+            "style": "title"
+          }
+        ],
+        "muted": false,
+        "locked": false,
+        "volume": 1.0
+      },
+      {
+        "id": "ddd111fd",
+        "name": "Music",
+        "type": "audio",
+        "clips": [
+          {
+            "id": "d28686d70b59",
+            "media_uuid": "",
+            "media_path": "/Users/kzoyce/Code_Projects/video-composer/downloads/music/jamendo_887205_Episode 4 Pt 3.mp3",
+            "media_type": "audio",
+            "in_point": 0.0,
+            "out_point": 0.0,
+            "position": 0.0,
+            "duration": 61.0,
+            "volume": 0.3,
+            "effects": [],
+            "transition": {
+              "type": "crossfade",
+              "duration": 0.5
+            },
+            "role": "highlight",
+            "reason": ""
+          }
+        ],
+        "text_elements": [],
+        "muted": false,
+        "locked": false,
+        "volume": 1.0
+      }
+    ],
+    "duration": 61.0
+  },
+  "render_history": [
+    {
+      "id": "3b31436345d7",
+      "output_path": "/output/Summer _24_ Utah Intern Adventures.mp4",
+      "rendered_at": 1773015867.3861718,
+      "theme": "minimal",
+      "resolution": "1920x1080",
+      "duration": 61.0
+    }
+  ],
+  "narrative_summary": "A vibrant celebration of summer 2024 intern life in Utah, blending outdoor adventures with urban discoveries. The story flows from desert excitement through BBQ bonding to triumphant moments, capturing the perfect mix of work and play.",
+  "music_mood": "upbeat indie pop with driving percussion"
+}

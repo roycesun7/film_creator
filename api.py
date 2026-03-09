@@ -244,9 +244,11 @@ def get_media(
     items = list_media(limit=limit, offset=offset, sort_by=sort, media_type=media_type,
                        date_from=date_from, date_to=date_to)
     total = count_media(media_type=media_type, date_from=date_from, date_to=date_to)
-    # Strip embeddings from response (they're large binary blobs)
+    # Add has_embedding flag, then strip the large embedding vectors
     for item in items:
+        item["has_embedding"] = item.get("embedding") is not None
         item.pop("embedding", None)
+        item.pop("clip_embedding", None)
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
@@ -256,7 +258,9 @@ def get_media_detail(media_uuid: str):
     if not items:
         raise HTTPException(status_code=404, detail="Media not found")
     item = items[0]
+    item["has_embedding"] = item.get("embedding") is not None
     item.pop("embedding", None)
+    item.pop("clip_embedding", None)
     return item
 
 
@@ -658,7 +662,7 @@ def _upload_to_supabase_storage(content: bytes, bucket: str, path: str, content_
 
 
 @app.post("/api/upload")
-async def upload_files(files: list[UploadFile] = File(...), describe: bool = Query(False)):
+async def upload_files(files: list[UploadFile] = File(...), describe: bool = Query(True)):
     """Upload photos/videos from the user's filesystem."""
     from index.store import upsert_media
     results = []
@@ -1451,6 +1455,45 @@ def _run_ai_arrange(job_id: str, project_id: str):
             music_path=project.music_path,
             music_volume=project.music_volume,
         )
+        # Auto-select music if none set but the director suggested a mood
+        if not new_project.music_path and new_project.music_mood:
+            try:
+                from curate.music_library import suggest_music, download_track, _is_available
+                if _is_available():
+                    _update_job(job_id, progress=85, message="Selecting music track...")
+                    suggestions = suggest_music(
+                        new_project.music_mood,
+                        target_duration=new_project.timeline.duration,
+                    )
+                    if suggestions:
+                        track = suggestions[0]
+                        music_dir = str(config.PROJECT_ROOT / "downloads" / "music")
+                        music_file = download_track(track, music_dir)
+                        new_project.music_path = music_file
+                        logger.info(
+                            "Auto-selected music: '%s' by %s (mood: %s)",
+                            track.title, track.artist, new_project.music_mood,
+                        )
+                        # Update the audio track with the new music
+                        for t in new_project.timeline.tracks:
+                            if t.type == "audio":
+                                from projects import Clip as ClipModel
+                                music_clip = ClipModel(
+                                    media_path=music_file,
+                                    media_type="audio",
+                                    position=0.0,
+                                    duration=new_project.timeline.duration + 2.0,
+                                    volume=new_project.music_volume,
+                                )
+                                t.clips = [music_clip]
+                                break
+                    else:
+                        logger.info("No music tracks found for mood: %s", new_project.music_mood)
+                else:
+                    logger.debug("Jamendo API not configured, skipping auto music selection")
+            except Exception as exc:
+                logger.warning("Auto music selection failed (non-fatal): %s", exc)
+
         # Preserve original project metadata
         new_project.id = project.id
         new_project.created_at = project.created_at
@@ -1540,7 +1583,9 @@ def _run_project_render(job_id: str, project_id: str):
                           "fade_white": "fadewhite", "slide_left": "slideleft",
                           "slide_right": "slideright", "smooth_left": "smoothleft",
                           "smooth_right": "smoothright", "wipe_left": "wipeleft",
-                          "wipe_right": "wiperight"}
+                          "wipe_right": "wiperight", "dissolve": "dissolve",
+                          "circleopen": "circleopen", "circleclose": "circleclose",
+                          "radial": "radial", "pixelize": "pixelize"}
             trans_type = trans_rmap.get(trans_type, trans_type)
             trans_dur = clip.transition.duration if clip.transition else 0.5
 
@@ -1703,6 +1748,33 @@ def api_delete_music(project_id: str):
     save_project(project)
 
     return {"deleted": True, "music_path": old_path}
+
+
+@app.get("/api/projects/{project_id}/music/file")
+def api_get_music_file(project_id: str):
+    """Serve the project's music file for browser playback."""
+    try:
+        project = load_project(project_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not project.music_path:
+        raise HTTPException(status_code=404, detail="Project has no music track")
+
+    music_file = Path(project.music_path)
+    if not music_file.exists():
+        raise HTTPException(status_code=404, detail="Music file not found on disk")
+
+    ext = music_file.suffix.lower()
+    content_types = {
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".aac": "audio/aac",
+        ".m4a": "audio/mp4",
+        ".ogg": "audio/ogg",
+        ".flac": "audio/flac",
+    }
+    return FileResponse(str(music_file), media_type=content_types.get(ext, "audio/mpeg"))
 
 
 # ---------------------------------------------------------------------------
@@ -1893,3 +1965,4 @@ def api_analyze_media(uuid: str, background_tasks: BackgroundTasks):
     background_tasks.add_task(_run_analysis, local_path, uuid)
 
     return {"status": "processing", "message": f"Analysis started for {uuid[:8]}"}
+

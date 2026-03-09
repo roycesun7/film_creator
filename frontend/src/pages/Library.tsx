@@ -6,7 +6,8 @@ import { fetchMedia, fetchStats, uploadFiles, deleteMediaItem, startIndex, thumb
 import {
   Image, Film, ChevronLeft, ChevronRight,
   Loader2, Upload, X, Clock, Tag, Users, Plus,
-  Trash2, CheckSquare, Square, MousePointerClick, Clapperboard, Zap, MessageSquare, AlertCircle, Sparkles
+  Trash2, CheckSquare, Square, MousePointerClick, Clapperboard, Zap, MessageSquare, AlertCircle, Sparkles,
+  MapPin, Star, Palette, Sun
 } from 'lucide-react'
 
 function MediaCard({
@@ -225,10 +226,22 @@ function MediaDetail({
               {(item.width && item.height) && (
                 <div className="text-zinc-400 text-xs">{item.width}x{item.height}</div>
               )}
+              {item.quality_score != null && (
+                <div className="flex items-center gap-2 text-zinc-400">
+                  <Star className="w-3.5 h-3.5" />
+                  <span>Quality: <span className="text-zinc-200 font-medium">Q{item.quality_score}</span></span>
+                </div>
+              )}
+              {item.lat != null && item.lon != null && (
+                <div className="flex items-center gap-2 text-zinc-400">
+                  <MapPin className="w-3.5 h-3.5" />
+                  <span>{item.lat.toFixed(4)}, {item.lon.toFixed(4)}</span>
+                </div>
+              )}
               <div className="flex items-center gap-2 text-zinc-400">
                 <Zap className="w-3.5 h-3.5" />
-                <span className={hasDescription ? 'text-emerald-400' : 'text-zinc-500'}>
-                  {hasDescription ? 'Embedded' : 'Not embedded'}
+                <span className={item.has_embedding ? 'text-emerald-400' : 'text-zinc-500'}>
+                  {item.has_embedding ? 'Embedded' : 'Not embedded'}
                 </span>
               </div>
             </div>
@@ -245,19 +258,50 @@ function MediaDetail({
                   <span className="truncate">{item.persons.join(', ')}</span>
                 </div>
               )}
+              {desc.mood && (
+                <div className="flex items-center gap-2 text-zinc-400">
+                  <Sun className="w-3.5 h-3.5" />
+                  <span className="truncate">{desc.mood}</span>
+                </div>
+              )}
+              {desc.setting && (
+                <div className="flex items-center gap-2 text-zinc-400">
+                  <Image className="w-3.5 h-3.5" />
+                  <span className="truncate">{desc.setting}</span>
+                </div>
+              )}
             </div>
           </div>
 
+          {desc.colors && desc.colors.length > 0 && (
+            <div className="mt-3 flex items-center gap-2">
+              <Palette className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+              <div className="flex flex-wrap gap-1.5">
+                {desc.colors.map((color: string) => (
+                  <span
+                    key={color}
+                    className="text-[11px] font-medium bg-zinc-800/80 text-zinc-400 border border-zinc-700/60 px-2 py-0.5 rounded-full"
+                  >
+                    {color}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {item.labels.length > 0 && (
-            <div className="mt-4 flex flex-wrap gap-1.5">
-              {item.labels.map((label) => (
-                <span
-                  key={label}
-                  className="text-[11px] font-medium bg-zinc-800 text-zinc-300 border border-zinc-700 px-2 py-0.5 rounded-full"
-                >
-                  {label}
-                </span>
-              ))}
+            <div className="mt-3 flex items-center gap-2">
+              <Tag className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+              <div className="flex flex-wrap gap-1.5">
+                {item.labels.map((label) => (
+                  <span
+                    key={label}
+                    className="text-[11px] font-medium bg-zinc-800 text-zinc-300 border border-zinc-700 px-2 py-0.5 rounded-full"
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
 
@@ -265,6 +309,9 @@ function MediaDetail({
             <div className="mt-4 p-3 bg-zinc-800/60 rounded-lg">
               <p className="text-xs text-zinc-500 mb-1">AI Description</p>
               <p className="text-sm text-zinc-300">{desc.summary}</p>
+              {desc.activity && (
+                <p className="text-xs text-zinc-500 mt-2">Activity: <span className="text-zinc-400">{desc.activity}</span></p>
+              )}
             </div>
           )}
         </div>
@@ -287,7 +334,7 @@ export default function Library() {
   const [mediaTypeFilter, setMediaTypeFilter] = useState<string>('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [autoDescribe, setAutoDescribe] = useState(false)
+  const [autoDescribe, setAutoDescribe] = useState(true)
   const [selectMode, setSelectMode] = useState(false)
   const [selectedUuids, setSelectedUuids] = useState<Set<string>>(new Set())
 

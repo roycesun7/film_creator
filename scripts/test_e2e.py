@@ -401,6 +401,160 @@ def test_enriched_director_output() -> bool:
     return True
 
 
+def test_ai_arrange_pipeline() -> bool:
+    """Full AI Arrange pipeline: create project -> trigger arrange -> poll -> validate -> cleanup.
+
+    This is a self-contained test that creates its own project, runs the AI arrange
+    pipeline end-to-end, and validates the resulting timeline structure including
+    transitions, narrative_summary, and music_mood.
+    """
+    test_project_id: str | None = None
+
+    try:
+        # Step 1: Create a new project with a prompt
+        print("  Step 1: Creating a fresh test project...")
+        r = requests.post(
+            f"{BASE}/api/projects",
+            json={
+                "name": "AI Arrange Pipeline Test",
+                "prompt": "A cinematic highlight reel -- dramatic, visually striking moments",
+            },
+            timeout=10,
+        )
+        if not check("POST /api/projects returns 200", r.status_code == 200,
+                      f"status={r.status_code}"):
+            print(f"    Response: {r.text[:500]}")
+            return False
+
+        project_data = r.json()
+        test_project_id = project_data.get("id")
+        if not check("Project ID returned", bool(test_project_id), f"id={test_project_id}"):
+            return False
+        print(f"    Created project: {test_project_id}")
+
+        # Step 2: Trigger AI arrange via preview endpoint
+        print("  Step 2: Triggering AI arrange (POST /api/projects/{id}/preview)...")
+        r = requests.post(f"{BASE}/api/projects/{test_project_id}/preview", timeout=15)
+        if not check("POST preview returns 200", r.status_code == 200,
+                      f"status={r.status_code}"):
+            print(f"    Response: {r.text[:500]}")
+            return False
+
+        job_id = r.json().get("job_id")
+        if not check("Job ID returned", bool(job_id), f"job_id={job_id}"):
+            return False
+        print(f"    Job started: {job_id}")
+
+        # Step 3: Poll the job until completion (max 120s)
+        print("  Step 3: Polling for job completion (max 120s)...")
+        timeout_sec = 120
+        poll_interval = 5
+        elapsed = 0
+        final_status = None
+        last_message = ""
+
+        while elapsed < timeout_sec:
+            r = requests.get(f"{BASE}/api/jobs/{job_id}", timeout=10)
+            if r.status_code != 200:
+                print(f"    Warning: job poll returned {r.status_code}")
+                time.sleep(poll_interval)
+                elapsed += poll_interval
+                continue
+
+            job = r.json()
+            status = job.get("status", "unknown")
+            progress = job.get("progress", 0)
+            message = job.get("message", "")
+
+            if message != last_message:
+                print(f"    [{elapsed:3d}s] {status} ({progress}%) {message}")
+                last_message = message
+
+            if status in ("completed", "failed"):
+                final_status = status
+                break
+
+            time.sleep(poll_interval)
+            elapsed += poll_interval
+
+        if not check("Job completed within 120s", final_status == "completed",
+                      f"status={final_status}, elapsed={elapsed}s"):
+            if final_status == "failed":
+                print(f"    Failure message: {last_message}")
+            return False
+
+        # Step 4: Fetch the completed project and validate
+        print("  Step 4: Validating the arranged project...")
+        r = requests.get(f"{BASE}/api/projects/{test_project_id}", timeout=10)
+        if not check("GET /api/projects/{id} returns 200", r.status_code == 200):
+            return False
+
+        project = r.json()
+        all_ok = True
+
+        # 4a: Timeline has at least 1 track
+        timeline = project.get("timeline", {})
+        tracks = timeline.get("tracks", [])
+        if not check("Timeline has at least 1 track", len(tracks) >= 1,
+                      f"track_count={len(tracks)}"):
+            return False
+
+        # 4b: Clips exist on at least one track
+        video_tracks = [t for t in tracks if t.get("type") == "video"]
+        if not check("At least one video track exists", len(video_tracks) > 0):
+            return False
+
+        clips = video_tracks[0].get("clips", [])
+        if not check("Video track has clips", len(clips) > 0, f"clip_count={len(clips)}"):
+            return False
+        print(f"    Found {len(clips)} clips on main video track")
+
+        # 4c: At least one clip has a non-"none" transition
+        non_none_transitions = []
+        for clip in clips:
+            trans = clip.get("transition", {})
+            trans_type = trans.get("type", "none") if isinstance(trans, dict) else "none"
+            if trans_type != "none":
+                non_none_transitions.append(trans_type)
+
+        if not check("At least one clip has a non-'none' transition",
+                      len(non_none_transitions) > 0,
+                      f"non-none transitions: {non_none_transitions}"):
+            all_ok = False
+
+        print(f"    Transitions found: {non_none_transitions}")
+
+        # 4d: narrative_summary is not empty
+        narrative = project.get("narrative_summary", "")
+        if not check("narrative_summary is not empty", bool(narrative)):
+            all_ok = False
+        else:
+            display = narrative[:120] + ("..." if len(narrative) > 120 else "")
+            print(f"    Narrative: {display}")
+
+        # 4e: music_mood is not empty
+        music_mood = project.get("music_mood", "")
+        if not check("music_mood is not empty", bool(music_mood)):
+            all_ok = False
+        else:
+            print(f"    Music mood: {music_mood}")
+
+        return all_ok
+
+    finally:
+        # Step 5: Clean up the test project
+        if test_project_id:
+            print("  Step 5: Cleaning up test project...")
+            try:
+                r = requests.delete(f"{BASE}/api/projects/{test_project_id}", timeout=10)
+                if r.status_code == 200:
+                    print(f"    Deleted project {test_project_id}")
+                else:
+                    print(f"    Warning: cleanup returned status {r.status_code}")
+            except Exception as exc:
+                print(f"    Warning: cleanup failed: {exc}")
+
+
 def test_project_cleanup() -> bool:
     """Delete the test project created during the test run."""
     global created_project_id
@@ -461,6 +615,8 @@ def main():
     run_test("Music Library Status", test_music_library_status)
     run_test("Music Search", test_music_search)
     run_test("Enriched Director Output Validation", test_enriched_director_output)
+    run_test("AI Arrange Pipeline (create -> arrange -> validate -> cleanup)",
+             test_ai_arrange_pipeline)
     run_test("Cleanup Test Project", test_project_cleanup)
 
     # Summary

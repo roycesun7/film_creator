@@ -172,6 +172,12 @@ def get_media_items(
 
     all_photos = photosdb.photos(**query_options) if query_options else photosdb.photos()
 
+    # Close the internal SQLite connection before it gets GC'd in a different thread
+    try:
+        photosdb._db_connection.close()
+    except Exception:
+        pass
+
     # Filter to locally-available photos first (skip iCloud-only)
     photos = [p for p in all_photos if p.path is not None]
     logger.info(

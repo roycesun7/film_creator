@@ -6,7 +6,7 @@ import {
   fetchJob, thumbnailUrl, videoUrl, searchMedia, fetchMedia,
   uploadProjectMusic, deleteProjectMusic,
   searchMusicLibrary, selectLibraryMusic, suggestMusic,
-  fetchMusicLibraryStatus,
+  fetchMusicLibraryStatus, projectMusicUrl,
   type ProjectData, type TimelineClip, type TimelineTrack, type TextElement,
   type MediaItem, type MusicTrack
 } from '../api'
@@ -135,6 +135,21 @@ function TimelineClipComponent({
       }}
       title={isTextElement ? (clip as TextElement).text : isMediaClip ? (clip as TimelineClip).reason : ''}
     >
+      {/* Transition indicator on left edge */}
+      {isMediaClip && (clip as TimelineClip).transition && (clip as TimelineClip).transition.type && (clip as TimelineClip).transition.type !== 'none' && (
+        <div
+          className="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-r from-violet-500/60 to-transparent z-10 pointer-events-auto"
+          title={`${(clip as TimelineClip).transition.type} (${(clip as TimelineClip).transition.duration}s)`}
+        />
+      )}
+      {/* Role badge */}
+      {isMediaClip && (clip as TimelineClip).role && (
+        <span className={`absolute top-0.5 right-1 text-[8px] font-bold uppercase opacity-60 pointer-events-none z-10 ${
+          { opener: 'text-violet-300', highlight: 'text-amber-300', 'b-roll': 'text-zinc-400', closer: 'text-blue-300', transition: 'text-emerald-300' }[(clip as TimelineClip).role] || 'text-zinc-400'
+        }`}>
+          {(clip as TimelineClip).role}
+        </span>
+      )}
       {/* Drag position indicator */}
       {isDragging && (
         <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-black/90 text-[9px] text-white px-1.5 py-0.5 rounded whitespace-nowrap z-40 pointer-events-none">
@@ -712,6 +727,9 @@ function TimelinePreview({
   timelineDuration,
   isPlaying,
   setIsPlaying,
+  projectId,
+  hasMusicTrack,
+  musicVolume,
 }: {
   tracks: TimelineTrack[]
   playheadPos: number
@@ -719,8 +737,12 @@ function TimelinePreview({
   timelineDuration: number
   isPlaying: boolean
   setIsPlaying: (v: boolean) => void
+  projectId?: string
+  hasMusicTrack?: boolean
+  musicVolume?: number
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
   const rafRef = useRef(0)
   const lastFrameRef = useRef(0)
   const currentSrcRef = useRef('')
@@ -791,12 +813,20 @@ function TimelinePreview({
     if (!isPlaying) {
       cancelAnimationFrame(rafRef.current)
       videoRef.current?.pause()
+      audioRef.current?.pause()
       return
     }
 
     const video = videoRef.current
     if (video && currentSrcRef.current) {
       video.play().catch(() => {})
+    }
+
+    // Start music playback
+    const audio = audioRef.current
+    if (audio && audio.src) {
+      audio.currentTime = playheadRef.current
+      audio.play().catch(() => {})
     }
 
     lastFrameRef.current = performance.now()
@@ -810,6 +840,7 @@ function TimelinePreview({
         setIsPlaying(false)
         onPlayheadChange(0)
         videoRef.current?.pause()
+        audioRef.current?.pause()
         return
       }
 
@@ -821,20 +852,48 @@ function TimelinePreview({
     return () => cancelAnimationFrame(rafRef.current)
   }, [isPlaying, onPlayheadChange, setIsPlaying])
 
-  // When play starts/stops, sync video
+  // When play starts/stops, sync video and music
   useEffect(() => {
     const video = videoRef.current
-    if (!video || !currentSrcRef.current) return
-    if (isPlaying) {
-      const clip = sortedClips.find(c => playheadRef.current >= c.position && playheadRef.current < c.position + c.duration)
-      if (clip && clip.media_type === 'video') {
-        video.currentTime = clip.in_point + (playheadRef.current - clip.position)
-        video.play().catch(() => {})
+    if (video && currentSrcRef.current) {
+      if (isPlaying) {
+        const clip = sortedClips.find(c => playheadRef.current >= c.position && playheadRef.current < c.position + c.duration)
+        if (clip && clip.media_type === 'video') {
+          video.currentTime = clip.in_point + (playheadRef.current - clip.position)
+          video.play().catch(() => {})
+        }
+      } else {
+        video.pause()
       }
-    } else {
-      video.pause()
+    }
+
+    const audio = audioRef.current
+    if (audio && audio.src) {
+      if (isPlaying) {
+        audio.currentTime = playheadRef.current
+        audio.play().catch(() => {})
+      } else {
+        audio.pause()
+      }
     }
   }, [isPlaying])
+
+  // Sync music volume
+  useEffect(() => {
+    const audio = audioRef.current
+    if (audio) {
+      audio.volume = musicVolume ?? 0.3
+    }
+  }, [musicVolume])
+
+  // Seek music when scrubbing
+  useEffect(() => {
+    if (isPlaying) return
+    const audio = audioRef.current
+    if (audio && audio.src) {
+      audio.currentTime = playheadPos
+    }
+  }, [playheadPos, isPlaying])
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60)
@@ -854,6 +913,15 @@ function TimelinePreview({
           playsInline
           preload="auto"
         />
+
+        {/* Background music audio */}
+        {projectId && hasMusicTrack && (
+          <audio
+            ref={audioRef}
+            src={projectMusicUrl(projectId)}
+            preload="auto"
+          />
+        )}
 
         {/* Photo layer */}
         {activeClip?.media_type === 'photo' && (
@@ -1600,6 +1668,9 @@ export default function ProjectEditor() {
             timelineDuration={timelineDuration}
             isPlaying={isPlaying}
             setIsPlaying={setIsPlaying}
+            projectId={projectId}
+            hasMusicTrack={!!project.music_path}
+            musicVolume={project.music_volume}
           />
 
           {/* Render complete overlay inside monitor */}
@@ -1694,7 +1765,16 @@ export default function ProjectEditor() {
                     </button>
                   )}
                   {project.narrative_summary && !isArranging && (
-                    <p className="text-[11px] text-zinc-500 mt-2 italic">{project.narrative_summary}</p>
+                    <div className="mt-3 bg-zinc-800/50 border border-zinc-700/50 rounded-lg p-4">
+                      <h4 className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mb-1.5">Director's Vision</h4>
+                      <p className="text-sm text-zinc-300 leading-relaxed">{project.narrative_summary}</p>
+                      {project.music_mood && (
+                        <div className="flex items-center gap-1.5 mt-2.5 text-xs text-zinc-400">
+                          <Music className="w-3 h-3 text-violet-400 shrink-0" />
+                          <span>Mood: <span className="text-zinc-300">{project.music_mood}</span></span>
+                        </div>
+                      )}
+                    </div>
                   )}
                   {!project.narrative_summary && project.prompt && !isArranging && (
                     <p className="text-[10px] text-zinc-600 mt-1.5">

@@ -132,6 +132,7 @@ export interface MediaItem {
   duration: number | null
   description: Record<string, any>
   quality_score: number | null
+  has_embedding?: boolean
 }
 
 export interface MediaListResponse {
@@ -470,3 +471,6 @@ export const projectPreview = (id: string) =>
 
 export const projectRender = (id: string) =>
   request<{ job_id: string }>(`/api/projects/${id}/render`, { method: 'POST' })
+
+export const projectMusicUrl = (id: string) =>
+  `${BASE}/api/projects/${id}/music/file`

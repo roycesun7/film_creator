@@ -287,7 +287,9 @@ def edl_to_project(
                      "fadewhite": "fade_white", "slideleft": "slide_left",
                      "slideright": "slide_right", "smoothleft": "smooth_left",
                      "smoothright": "smooth_right", "wipeleft": "wipe_left",
-                     "wiperight": "wipe_right"}
+                     "wiperight": "wipe_right", "dissolve": "crossfade",
+                     "circleopen": "crossfade", "circleclose": "crossfade",
+                     "radial": "crossfade", "pixelize": "crossfade"}
         trans_type = trans_map.get(trans_type, trans_type)
         trans_dur = shot_data.get("transition_duration", 0.0)
 

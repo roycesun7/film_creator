@@ -1,0 +1,51 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - navigation [ref=e4]:
+    - generic [ref=e5]:
+      - img [ref=e6]
+      - generic [ref=e8]: Video Composer
+    - generic [ref=e9]:
+      - link "Dashboard ⌘1" [ref=e10] [cursor=pointer]:
+        - /url: /
+        - img [ref=e11]
+        - generic [ref=e16]: Dashboard
+        - generic [ref=e17]: ⌘1
+      - link "Library 73 ⌘2" [ref=e18] [cursor=pointer]:
+        - /url: /library
+        - img [ref=e19]
+        - generic [ref=e21]: Library
+        - generic [ref=e22]: "73"
+        - generic [ref=e23]: ⌘2
+      - link "Search ⌘3" [ref=e24] [cursor=pointer]:
+        - /url: /search
+        - img [ref=e25]
+        - generic [ref=e28]: Search
+        - generic [ref=e29]: ⌘3
+      - link "Projects ⌘4" [ref=e30] [cursor=pointer]:
+        - /url: /projects
+        - img [ref=e31]
+        - generic [ref=e35]: Projects
+        - generic [ref=e36]: ⌘4
+      - link "Studio ⌘5" [ref=e37] [cursor=pointer]:
+        - /url: /studio
+        - img [ref=e38]
+        - generic [ref=e43]: Studio
+        - generic [ref=e44]: ⌘5
+      - link "Videos 7 ⌘6" [ref=e45] [cursor=pointer]:
+        - /url: /videos
+        - img [ref=e46]
+        - generic [ref=e48]: Videos
+        - generic [ref=e49]: "7"
+        - generic [ref=e50]: ⌘6
+    - generic [ref=e51]: AI-powered video editing
+  - main [ref=e52]:
+    - generic [ref=e53]:
+      - img [ref=e54]
+      - paragraph [ref=e58]: Failed to load project
+      - paragraph [ref=e59]: Project not found
+      - button "Back to Projects" [ref=e60]:
+        - img [ref=e61]
+        - text: Back to Projects
+```
